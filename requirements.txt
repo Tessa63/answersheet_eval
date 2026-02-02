@@ -1,0 +1,8 @@
+flask
+scikit-learn
+numpy
+pytesseract
+pdf2image
+Pillow
+easyocr
+sentence-transformers

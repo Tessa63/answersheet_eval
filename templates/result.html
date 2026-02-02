@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evaluation Report</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="score-summary">
+            <div class="score-label">Total Score</div>
+            <div class="total-score">{{ exam_data.total_score }}</div>
+            <div class="max-score">out of {{ exam_data.max_score }}</div>
+        </div>
+
+        <div class="question-list">
+            {% for item in exam_data.breakdown %}
+            {% set score_class = 'score-high' if item.score >= 8 else 'score-med' if item.score >= 5 else 'score-low' %}
+
+            <div class="question-card {{ score_class }}">
+                <div class="q-score-box">
+                    <span class="q-score-val">{{ item.score }}</span>
+                    <span class="q-score-max">/ 10</span>
+                </div>
+
+                <div class="q-content">
+                    <div class="q-header">
+                        <div class="q-title">{{ item.question }}</div>
+                    </div>
+                    <div class="q-feedback">
+                        {{ item.feedback }}
+                    </div>
+                    {% if item.details %}
+                    <div class="q-meta">
+                        <span class="tag">Similarity: {{ item.details.similarity }}</span>
+                        <span class="tag">Coverage: {{ item.details.coverage }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div style="text-align: center; margin-top: 40px;">
+            <a href="/" class="btn-secondary">Evaluate Another</a>
+        </div>
+    </div>
+
+</body>
+
+</html>

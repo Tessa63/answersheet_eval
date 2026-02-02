@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Answer AI | Smart Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+    <div class="container">
+        <header class="header">
+            <h1>Answer AI</h1>
+            <p class="subtitle">Effortless answer sheet grading powered by semantic analysis.</p>
+        </header>
+
+        <main class="card">
+            <form action="/evaluate" method="post" enctype="multipart/form-data" id="upload-form">
+
+                <div class="upload-grid">
+                    <!-- Student File -->
+                    <div class="upload-zone" id="zone-student">
+                        <input type="file" name="student_file" id="student_file" accept=".pdf" required>
+                        <span class="icon-placeholder">📄</span>
+                        <span class="file-label">Student Answer Sheet</span>
+                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <span class="file-name" id="name-student"></span>
+                    </div>
+
+                    <!-- Model File -->
+                    <div class="upload-zone" id="zone-model">
+                        <input type="file" name="model_file" id="model_file" accept=".pdf" required>
+                        <span class="icon-placeholder">🔑</span>
+                        <span class="file-label">Model Answer Key</span>
+                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <span class="file-name" id="name-model"></span>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary">
+                    <span>Evaluate Papers</span>
+                </button>
+            </form>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <h3>Analyzing Content...</h3>
+        <p>Reading OCR text and calculating semantic scores</p>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>
