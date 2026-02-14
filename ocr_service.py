@@ -70,6 +70,48 @@ def preprocess_image(image):
 
     return sharpened
 
+def remove_red_ink(image):
+    """
+    Removes red ink (teacher's grading) from the image by replacing it with white.
+    """
+    # Convert to HSV
+    if not isinstance(image, np.ndarray):
+        img = np.array(image)
+    else:
+        img = image.copy()
+        
+    # Check if grayscale, if so convert to BGR first (though red detection needs color)
+    if len(img.shape) == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.shape[2] == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+        
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    
+    # Define range for red color
+    # Red wraps around 180, so we need two ranges
+    # Range 1: 0-10
+    lower_red1 = np.array([0, 50, 50])
+    upper_red1 = np.array([10, 255, 255])
+    
+    # Range 2: 170-180
+    lower_red2 = np.array([170, 50, 50])
+    upper_red2 = np.array([180, 255, 255])
+    
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    
+    mask = mask1 + mask2
+    
+    # Dilate mask slightly to catch edges of ink
+    kernel = np.ones((3,3), np.uint8)
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    
+    # Replace red pixels with white
+    img[mask > 0] = [255, 255, 255]
+    
+    return img
+
 def extract_text_from_file(file_path):
     """
     Extracts text from a PDF or Image file using OCR.
@@ -82,32 +124,35 @@ def extract_text_from_file(file_path):
         # -------- PDF HANDLING --------
         if file_path.lower().endswith(".pdf"):
             if POPPLER_PATH:
-                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=300)
+                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=200)
             else:
-                images = convert_from_path(file_path, dpi=300)
+                images = convert_from_path(file_path, dpi=200)
                 
             for img in images:
-                # Preprocess for better handwriting recognition
-                # EasyOCR works on numpy arrays or file paths. PIL images work too but 
-                # converting to numpy array is standard for cv2-based backends.
-                processed_img = preprocess_image(img)
+                # 1. Remove Red Ink first (requires Color image)
+                # Convert PIL to Numpy
+                img_np = np.array(img)
+                no_red_img = remove_red_ink(img_np)
                 
-                # Convert PIL to numpy array for EasyOCR (optional, but handled internally usually)
-                # simpler: pass the PIL image or save temp. EasyOCR supports PIL images directly in newer versions
-                # or we can pass numpy array.
-                img_np = np.array(processed_img)
+                # 2. Preprocess for handwriting (Grayscale, Denoise, CLAHE)
+                processed_img = preprocess_image(no_red_img)
                 
                 # detail=0 returns just the list of text strings
-                results = reader.readtext(img_np, detail=0, paragraph=True)
+                results = reader.readtext(processed_img, detail=0, paragraph=True)
                 text += "\n".join(results) + "\n\n"
 
         # -------- IMAGE HANDLING --------
         else:
             img = Image.open(file_path)
-            processed_img = preprocess_image(img)
-            img_np = np.array(processed_img)
+            img_np = np.array(img)
             
-            results = reader.readtext(img_np, detail=0, paragraph=True)
+            # 1. Remove Red Ink
+            no_red_img = remove_red_ink(img_np)
+             
+            # 2. Preprocess
+            processed_img = preprocess_image(no_red_img)
+            
+            results = reader.readtext(processed_img, detail=0, paragraph=True)
             text = "\n".join(results)
             
     except Exception as e:

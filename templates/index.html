@@ -38,6 +38,15 @@
                         <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
                         <span class="file-name" id="name-model"></span>
                     </div>
+
+                    <!-- Question Paper (New) -->
+                    <div class="upload-zone" id="zone-question">
+                        <input type="file" name="question_file" id="question_file" accept=".pdf">
+                        <span class="icon-placeholder">📝</span>
+                        <span class="file-label">Question Paper (Optional)</span>
+                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <span class="file-name" id="name-question"></span>
+                    </div>
                 </div>
 
                 <button type="submit" class="btn-primary">
@@ -50,8 +59,8 @@
     <!-- Loading Overlay -->
     <div id="loading-overlay">
         <div class="spinner"></div>
-        <h3>Analyzing Content...</h3>
-        <p>Reading OCR text and calculating semantic scores</p>
+        <h3 id="loading-title">Analyzing Content...</h3>
+        <p id="loading-status-text">Starting evaluation...</p>
     </div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>

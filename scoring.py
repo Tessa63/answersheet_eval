@@ -226,16 +226,29 @@ class SemanticScorer:
             }
         }
 
-    def evaluate_exam(self, student_segments, model_segments):
+    def evaluate_exam(self, student_segments, model_segments, question_schema=None):
         """
-        Evaluates full exam with 'OR' logic.
+        Evaluates full exam with 'OR' logic and variable Max Marks using schema.
         """
         results = []
-        
         processed_model_keys = set()
         
         # Sort keys to process 1, 1a, 1b in order roughly
         model_keys = sorted(model_segments.keys())
+        
+        # 1. First, align Model Answers to Schema if exists
+        # If we have a schema, we ideally want to iterate through schema questions.
+        # But our Model Answer file might match 1-to-1 with Schema questions.
+        
+        # We will iterate through MODEL keys as the source of truth for "Correct Answer Content".
+        # But we will look up metadata from Schema.
+        
+        # Fallback if no schema: Assume 10 marks per question, no OR groups.
+        if not question_schema:
+            question_schema = {}
+            
+        # Group results by Schema Group ID to handle OR logic
+        grouped_results = {} 
         
         for m_key in model_keys:
             if m_key in processed_model_keys:
@@ -243,85 +256,93 @@ class SemanticScorer:
                 
             model_ans = model_segments[m_key]
             
-            # Logic for "OR" handling:
-            # Check if this key looks like an alternative (e.g., '5a', '5b')
-            # If so, we group them.
-            # Simplified heuristic: Group by numeric prefix.
-            # "1a", "1b" -> group "1"
-            
+            # Lookup Schema Info
+            # Schema keys might be "1" while Model key is "1" or "Q1" or "1a".
+            # Try exact match or loose match.
             base_num = re.sub(r'[a-z]', '', m_key) # "1a" -> "1"
             
-            # Find all model keys sharing this base number
-            alternatives = [k for k in model_segments.keys() if re.sub(r'[a-z]', '', k) == base_num]
+            schema_info = question_schema.get(m_key) or question_schema.get(base_num) or {}
+            max_marks = schema_info.get("max_marks", 10) # Default 10
+            group_id = schema_info.get("group", m_key) # Default to self as group
             
-            # If we have alternatives (more than 1 key with same number)
-            # We assume MAX score approach if student answered only one.
-            # But wait, usually exams are: "Q1 is mandatory. Q2 OR Q3."
-            # Our parser output keys like '1', '2', '3'.
-            # If Model has '1' and '2' and '3', and Student has '1','2','3', it's direct.
+            score_data = {
+                "question": m_key,
+                "score": 0,
+                "max_marks": max_marks,
+                "feedback": "",
+                "details": {}
+            }
             
-            # If Model has '5a' and '5b' (meaning 5a OR 5b), and Student has '5'.
-            # We check Student['5'] against Model['5a'] and Model['5b'].
-            
-            best_result = None
-            best_score = -1
-            
-            # Check for direct match first
+            # Find Student Answer
+            # 1. Exact match
             if m_key in student_segments:
-                # 1-to-1 match
                 res = self.evaluate_single_answer(student_segments[m_key], model_ans)
-                res['question'] = m_key
-                results.append(res)
-                processed_model_keys.add(m_key)
-                continue
-            
-            # Check if Student used the Base Key (e.g. Student wrote "5")
-            if base_num in student_segments:
-                # Compare Student '5' with this Model Key '5a'
+                raw_score_normalized = res['score'] / 10.0 # 0.0 to 1.0 (res['score'] is out of 10 currently)
+                
+                score_data.update(res)
+                # Scale to Actual Max Marks
+                score_data['score'] = round(raw_score_normalized * max_marks, 1)
+                
+            # 2. Base match (e.g. Model '1a', Student '1')
+            elif base_num in student_segments:
                 res = self.evaluate_single_answer(student_segments[base_num], model_ans)
-                res['question'] = f"{m_key} (checked against Q{base_num})"
+                raw_score_normalized = res['score'] / 10.0
                 
-                # Check if we already have a result for this Base Num in the results list?
-                # This is getting complicated.
-                # Let's simplify: Return ALL comparisons, UI can filter or we just list them.
-                # Actually, "take largest mark" was the requirement.
+                score_data.update(res)
+                score_data['question'] = f"{m_key} (checked against Q{base_num})"
+                score_data['score'] = round(raw_score_normalized * max_marks, 1)
                 
-                # We will append this result. If there are multiple comparisons for Q5,
-                # we might end up with "Q5a: 8/10", "Q5b: 2/10".
-                # The user (teacher) can see which one matched.
-                results.append(res)
-                processed_model_keys.add(m_key)
             else:
-                 # Not Attempted
-                 results.append({
-                     "question": m_key,
-                     "score": 0,
-                     "feedback": "Not Attempted",
-                     "details": {}
-                 })
-                 processed_model_keys.add(m_key)
+                 score_data['score'] = 0
+                 score_data['feedback'] = "Not Attempted"
 
-        # Calculate Totals
-        # If we have multiple entries for the same base question (due to OR), 
-        # we should probably only count the max one towards the total, 
-        # BUT for transparency we list all.
-        # For the total score calculation, let's group by Base Number.
-        
-        scores_by_base = {}
-        for r in results:
-            q_label = r['question'].split(' ')[0] # Get '5a' or '5'
-            base = re.sub(r'[a-z]', '', q_label)
+            # Add to Group
+            if group_id not in grouped_results:
+                grouped_results[group_id] = []
+            grouped_results[group_id].append(score_data)
             
-            s = r['score']
-            if base not in scores_by_base:
-                scores_by_base[base] = 0
-            scores_by_base[base] = max(scores_by_base[base], s)
-            
-        total_obtained = sum(scores_by_base.values())
-        max_possible = len(scores_by_base) * 10
+            processed_model_keys.add(m_key)
+
+        # Post-Processing: Handle OR Groups
+        # For each group, we pick the highest score?
+        # Actually, "OR" usually means "Select one of these questions". 
+        # If student answered both, exams usually take the BEST one.
         
+        final_results = []
+        total_obtained = 0
+        total_possible = 0
+        
+        for group_id, items in grouped_results.items():
+            # If group has multiple items, it effectively means they are alternatives OR parts.
+            # Wait, parts (1a, 1b) are usually SUMMED. Alternatives (Q1 OR Q2) are MAXED.
+            # The schema should tell us.
+            # Our current schema parser uses "OR" detection to assign same Group ID to alternatives.
+            # So items with SAME Group ID are ALTERNATIVES.
+            
+            # Select the Best score in this group
+            best_item = max(items, key=lambda x: x['score'])
+            
+            # Mark others as "Skipped / Alternative"
+            for item in items:
+                if item == best_item:
+                    item['selected'] = True
+                    total_obtained += item['score']
+                    total_possible += item['max_marks']
+                else:
+                    item['selected'] = False
+                    item['feedback'] += " (Alternative option not selected or lower score)"
+                    # Do not add to total possible if it's an alternative we didn't count
+            
+            final_results.extend(items)
+            
+        # Sort by question ID for display
+        def natural_keys(text):
+            return [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', text)]
+            
+        final_results.sort(key=lambda x: natural_keys(x['question']))
+
         return {
-            "breakdown": results,
+            "breakdown": final_results,
             "total_score": round(total_obtained, 1),
-            "max_score": max_possible
+            "max_score": total_possible
         }
