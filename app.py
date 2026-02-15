@@ -73,21 +73,25 @@ def evaluate():
     student_file.save(s_path)
     model_file.save(m_path)
     
-    q_schema = {}
+    q_path = None
     if question_file and question_file.filename != "":
         q_path = os.path.join(UPLOAD_FOLDER, "question_" + question_file.filename)
         question_file.save(q_path)
-        update_progress(2, "Reading question paper with OCR... (this may take a minute)")
-        q_schema = parse_question_paper_file(q_path)
-        print("Question Paper Schema:", q_schema)
 
     # --- Run heavy processing in a thread with timeout ---
     result_holder = {"result": None, "error": None}
 
     def process_evaluation():
+        q_schema = {}
         try:
+            # 0. Question Paper OCR (if provided)
+            if q_path:
+                update_progress(2, "Reading question paper with OCR... (this may take a minute)")
+                q_schema = parse_question_paper_file(q_path)
+                print("Question Paper Schema:", q_schema)
+
             # 1. OCR (Extract raw text)
-            update_progress(3, "Running OCR on student answer... (this may take a minute)")
+            update_progress(3, "Running OCR on student answer... (this may take a few minutes)")
             student_raw = extract_text_from_file(s_path)
             
             update_progress(4, "Running OCR on model answer...")
@@ -148,14 +152,14 @@ def evaluate():
     worker = threading.Thread(target=process_evaluation)
     worker.start()
     
-    # Wait with a 15-minute timeout (3 OCR passes on CPU can be very slow)
-    TIMEOUT_SECONDS = 900
+    # Wait with a 30-minute timeout (multiple OCR passes on CPU can be very slow)
+    TIMEOUT_SECONDS = 1800
     worker.join(timeout=TIMEOUT_SECONDS)
     
     if worker.is_alive():
         # Thread is still running after timeout
         progress["status"] = "error"
-        progress["message"] = "Processing timed out after 15 minutes."
+        progress["message"] = "Processing timed out after 30 minutes."
         print("ERROR: Processing timed out!")
         return "Processing timed out. The files may be too large or complex. Try with fewer pages.", 504
     

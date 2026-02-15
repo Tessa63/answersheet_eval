@@ -124,11 +124,15 @@ def extract_text_from_file(file_path):
         # -------- PDF HANDLING --------
         if file_path.lower().endswith(".pdf"):
             if POPPLER_PATH:
-                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=200)
+                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=150)
             else:
-                images = convert_from_path(file_path, dpi=200)
+                images = convert_from_path(file_path, dpi=150)
+            
+            total_pages = len(images)
+            print(f"Processing {total_pages} page(s) from: {os.path.basename(file_path)}")
                 
-            for img in images:
+            for i, img in enumerate(images, 1):
+                print(f"  OCR page {i}/{total_pages}...")
                 # 1. Remove Red Ink first (requires Color image)
                 # Convert PIL to Numpy
                 img_np = np.array(img)
