@@ -5,6 +5,8 @@ import os
 from pdf2image import convert_from_path
 import sys
 import numpy as np
+import cv2
+import pytesseract
 
 # Try to find poppler in common locations, otherwise hope it's in PATH
 POPPLER_PATH = None
@@ -20,8 +22,6 @@ for p in possible_poppler_paths:
 
 
 # Initialize EasyOCR reader globally to avoid reloading it (it's heavy)
-# 'en' for English. You can add more languages if needed.
-# GPU=True if available, else False.
 READER = None
 
 def get_reader():
@@ -31,56 +31,63 @@ def get_reader():
         READER = easyocr.Reader(['en'])
     return READER
 
-import cv2
-import numpy as np
 
-def preprocess_image(image):
+def preprocess_light(image):
     """
-    Apply advanced image processing to improve OCR accuracy for messy handwriting.
-    Uses CLAHE (Contrast Limited Adaptive Histogram Equalization) to handle uneven lighting
-    while preserving grayscale details for the deep learning model.
+    Light preprocessing for handwritten text -- preserves ink details
+    that heavy CLAHE/sharpening destroys. Only does:
+      1. Grayscale conversion
+      2. Light denoising
     """
-    # 1. Convert PIL Image to Numpy Array (OpenCV format)
     if not isinstance(image, np.ndarray):
         img = np.array(image)
     else:
         img = image
 
-    # 2. Convert to Grayscale
     if len(img.shape) == 3:
         gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     else:
         gray = img
 
-    # 3. Denoising
-    # Remove noise while keeping edges sharp (Bilateral Filter is good for this)
-    # d=9, sigmaColor=75, sigmaSpace=75 are standard starting points
-    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+    # Light gaussian blur to reduce noise without destroying strokes
+    denoised = cv2.GaussianBlur(gray, (3, 3), 0)
+    
+    return denoised
 
-    # 4. CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    # This enhances local contrast (great for shadows) without amplifying noise too much.
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(denoised)
 
-    # 5. Optional: Slight sharpening
-    kernel = np.array([[0, -1, 0], 
-                       [-1, 5,-1], 
-                       [0, -1, 0]])
-    sharpened = cv2.filter2D(enhanced, -1, kernel)
+def preprocess_for_tesseract(image):
+    """
+    Preprocessing optimized for Tesseract: adaptive thresholding to
+    create clean binary image from handwriting.
+    """
+    if not isinstance(image, np.ndarray):
+        img = np.array(image)
+    else:
+        img = image
+    
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img
+    
+    # Adaptive threshold handles uneven lighting on paper
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY, 31, 12
+    )
+    
+    return binary
 
-    return sharpened
 
 def remove_red_ink(image):
     """
     Removes red ink (teacher's grading) from the image by replacing it with white.
     """
-    # Convert to HSV
     if not isinstance(image, np.ndarray):
         img = np.array(image)
     else:
         img = image.copy()
         
-    # Check if grayscale, if so convert to BGR first (though red detection needs color)
     if len(img.shape) == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     elif img.shape[2] == 4:
@@ -88,19 +95,14 @@ def remove_red_ink(image):
         
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     
-    # Define range for red color
-    # Red wraps around 180, so we need two ranges
-    # Range 1: 0-10
+    # Red wraps around 180 in HSV, so we need two ranges
     lower_red1 = np.array([0, 50, 50])
     upper_red1 = np.array([10, 255, 255])
-    
-    # Range 2: 170-180
     lower_red2 = np.array([170, 50, 50])
     upper_red2 = np.array([180, 255, 255])
     
     mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
     mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-    
     mask = mask1 + mask2
     
     # Dilate mask slightly to catch edges of ink
@@ -112,21 +114,82 @@ def remove_red_ink(image):
     
     return img
 
+
+def _count_readable_words(text):
+    """Count words that look like actual English words (>= 3 chars, alphabetic)."""
+    words = re.findall(r'[a-zA-Z]{3,}', text)
+    return len(words)
+
+
+def ocr_page_dual_engine(img_np):
+    """
+    Run both EasyOCR and Tesseract on a page, return the better result.
+    
+    Strategy:
+    - EasyOCR: run on raw color image (after red ink removal) -- uses deep learning
+    - Tesseract: run on adaptive threshold binary -- better for structured text
+    - Pick the result with more readable words (heuristic for quality)
+    """
+    reader = get_reader()
+    
+    # --- EasyOCR on lightly processed image ---
+    light_img = preprocess_light(img_np)
+    try:
+        easy_results = reader.readtext(light_img, detail=0, paragraph=True)
+        easy_text = "\n".join(easy_results)
+    except Exception as e:
+        print(f"    EasyOCR error: {e}")
+        easy_text = ""
+    
+    # --- Tesseract on adaptive threshold ---
+    binary_img = preprocess_for_tesseract(img_np)
+    try:
+        tess_text = pytesseract.image_to_string(binary_img, config='--psm 4 --oem 3')
+    except Exception as e:
+        print(f"    Tesseract error: {e}")
+        tess_text = ""
+    
+    # --- Pick the better result ---
+    easy_words = _count_readable_words(easy_text)
+    tess_words = _count_readable_words(tess_text)
+    
+    # Merge: use the one with more readable words  
+    # But also combine unique content from both if they're close
+    if easy_words == 0 and tess_words == 0:
+        # Both failed -- return whatever we got
+        return easy_text + "\n" + tess_text
+    
+    if tess_words > easy_words * 1.3:
+        chosen = "Tesseract"
+        result = tess_text
+    elif easy_words > tess_words * 1.3:
+        chosen = "EasyOCR"
+        result = easy_text
+    else:
+        # Similar quality -- merge both for maximum content
+        chosen = "Merged"
+        result = easy_text + "\n" + tess_text
+    
+    print(f"    OCR winner: {chosen} (EasyOCR: {easy_words} words, Tesseract: {tess_words} words)")
+    
+    return result
+
+
 def extract_text_from_file(file_path):
     """
-    Extracts text from a PDF or Image file using OCR.
+    Extracts text from a PDF or Image file using dual-engine OCR
+    (EasyOCR + Tesseract) with confidence-based selection.
     """
     text = ""
     
     try:
-        reader = get_reader()
-        
         # -------- PDF HANDLING --------
         if file_path.lower().endswith(".pdf"):
+            # Use higher DPI (200) for better handwriting recognition
             if POPPLER_PATH:
-                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=150)
+                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=200)
             else:
-                images = convert_from_path(file_path, dpi=150)
+                images = convert_from_path(file_path, dpi=200)
             
             total_pages = len(images)
             print(f"Processing {total_pages} page(s) from: {os.path.basename(file_path)}")
@@ -134,16 +197,12 @@ def extract_text_from_file(file_path):
             for i, img in enumerate(images, 1):
                 print(f"  OCR page {i}/{total_pages}...")
                 # 1. Remove Red Ink first (requires Color image)
-                # Convert PIL to Numpy
                 img_np = np.array(img)
                 no_red_img = remove_red_ink(img_np)
                 
-                # 2. Preprocess for handwriting (Grayscale, Denoise, CLAHE)
-                processed_img = preprocess_image(no_red_img)
-                
-                # detail=0 returns just the list of text strings
-                results = reader.readtext(processed_img, detail=0, paragraph=True)
-                text += "\n".join(results) + "\n\n"
+                # 2. Dual-engine OCR
+                page_text = ocr_page_dual_engine(no_red_img)
+                text += page_text + "\n\n"
 
         # -------- IMAGE HANDLING --------
         else:
@@ -153,14 +212,13 @@ def extract_text_from_file(file_path):
             # 1. Remove Red Ink
             no_red_img = remove_red_ink(img_np)
              
-            # 2. Preprocess
-            processed_img = preprocess_image(no_red_img)
-            
-            results = reader.readtext(processed_img, detail=0, paragraph=True)
-            text = "\n".join(results)
+            # 2. Dual-engine OCR
+            text = ocr_page_dual_engine(no_red_img)
             
     except Exception as e:
         print(f"Error during OCR: {e}")
+        import traceback
+        traceback.print_exc()
         return ""
     
     return text

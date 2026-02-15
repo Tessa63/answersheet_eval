@@ -125,7 +125,7 @@ def evaluate():
             # 2. Process Student Answer with Spell Correction
             for k in student_segments:
                 s_clean = clean_text(student_segments[k])
-                s_corrected = correct_spelling(s_clean, custom_dictionary=model_vocab, cutoff=0.6)
+                s_corrected = correct_spelling(s_clean, custom_dictionary=model_vocab)
                 student_segments[k] = s_corrected
                 
                 if len(s_clean) > 0:

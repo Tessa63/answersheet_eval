@@ -13,7 +13,8 @@ COMMON_TERMS = [
 
 def clean_text(text):
     """
-    Standardizes text: lowercase, removes special chars, cleans whitespace.
+    Standardizes text: lowercase, keeps alphanumeric + basic punctuation,
+    cleans whitespace. Preserves hyphens, commas, periods for semantic meaning.
     """
     if not text:
         return ""
@@ -21,20 +22,20 @@ def clean_text(text):
     # Convert to lowercase
     text = text.lower()
     
-    # Remove special characters (keep a-z and 0-9)
-    # Note: Depending on requirements, we might want to keep punctuation, 
-    # but the original script removed it, so preserving that behavior.
-    text = re.sub(r"[^a-z0-9\s]", "", text)
+    # Keep a-z, 0-9, spaces, hyphens, commas, periods (useful for semantic meaning)
+    # Remove everything else (brackets, special symbols, etc.)
+    text = re.sub(r"[^a-z0-9\s\-,.]", "", text)
     
     # Remove extra spaces
     text = re.sub(r"\s+", " ", text).strip()
     
     return text
 
-def correct_spelling(text, custom_dictionary=None, cutoff=0.6):
+def correct_spelling(text, custom_dictionary=None, cutoff=0.75):
     """
-    Simple spell correction based on a known dictionary of terms.
-    If a word is 'close enough' to a dictionary term, replace it.
+    Conservative spell correction based on a known dictionary of terms.
+    Only corrects words that are very close to a dictionary term.
+    Uses high cutoff (0.75) to avoid aggressively corrupting words.
     """
     if not text:
         return ""
@@ -48,10 +49,25 @@ def correct_spelling(text, custom_dictionary=None, cutoff=0.6):
     corrected_words = []
 
     for word in words:
-        # Find close matches
+        # Skip very short words (they are usually correct or common words)
+        if len(word) <= 3:
+            corrected_words.append(word)
+            continue
+        
+        # Skip words that are already in the dictionary (exact match)
+        if word in dictionary:
+            corrected_words.append(word)
+            continue
+            
+        # Find close matches with high cutoff to avoid aggressive replacement
         matches = get_close_matches(word, dictionary, n=1, cutoff=cutoff)
         if matches:
-            corrected_words.append(matches[0])
+            match = matches[0]
+            # Guard: don't replace if length difference is too big (likely wrong match)
+            if abs(len(match) - len(word)) <= 3:
+                corrected_words.append(match)
+            else:
+                corrected_words.append(word)
         else:
             corrected_words.append(word)
     

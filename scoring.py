@@ -194,11 +194,22 @@ class SemanticScorer:
         else:
             concept_score = 0
             
-        final_score = (0.4 * overall_sim) + (0.6 * concept_score)
+        # Give more weight to semantic similarity (more reliable with OCR text)
+        # than concept coverage (which depends on clean n-gram extraction)
+        final_score = (0.6 * overall_sim) + (0.4 * concept_score)
         
-        # Boost
+        # Boost: if concept coverage is high, trust it
         if concept_score > 0.8:
             final_score = max(final_score, concept_score)
+        
+        # Similarity floor: if overall similarity is strong, don't let
+        # bad concept extraction drag the score to near-zero
+        if overall_sim > 0.6:
+            # The answer is semantically similar -- give at least sim-based score
+            final_score = max(final_score, overall_sim * 0.85)
+        elif overall_sim > 0.4:
+            # Moderate similarity -- give a reasonable floor
+            final_score = max(final_score, overall_sim * 0.7)
             
         final_score = max(0.0, min(1.0, final_score))
         
@@ -236,13 +247,32 @@ class SemanticScorer:
         # Sort keys to process 1, 1a, 1b in order roughly
         model_keys = sorted(model_segments.keys())
         
-        # Fallback if no schema: Assume 3 marks per question (common for short-answer exams)
+        # Fallback if no schema
         if not question_schema:
             question_schema = {}
+        
+        # Extract total marks hint from schema (if detected from question paper)
+        total_marks_hint = None
+        if "_total_marks" in question_schema:
+            total_marks_hint = question_schema["_total_marks"]
+            if isinstance(total_marks_hint, dict):
+                total_marks_hint = None
+            print(f"[Scoring] Total marks hint from question paper: {total_marks_hint}")
+        
+        # Calculate default marks per question
+        num_model_questions = len(model_keys)
+        if total_marks_hint and num_model_questions > 0:
+            # Distribute total marks evenly if we know the total but not individual marks
+            default_marks = round(total_marks_hint / num_model_questions)
+            default_marks = max(1, default_marks)  # At least 1 mark
+            print(f"[Scoring] Computed default marks per question: {default_marks} ({total_marks_hint}/{num_model_questions})")
+        else:
+            default_marks = 5  # University exams commonly use 5-mark questions
         
         print(f"\n[Scoring] Using question schema: {question_schema}")
         print(f"[Scoring] Model answer keys: {model_keys}")
         print(f"[Scoring] Student answer keys: {list(student_segments.keys())}")
+        print(f"[Scoring] Default marks per question: {default_marks}")
             
         # Group results by Schema Group ID to handle OR logic
         grouped_results = {} 
@@ -259,7 +289,10 @@ class SemanticScorer:
             base_num = re.sub(r'[a-z]', '', m_key) # "1a" -> "1"
             
             schema_info = question_schema.get(m_key) or question_schema.get(base_num) or {}
-            max_marks = schema_info.get("max_marks", 3) # Default 3 marks if no schema
+            # Skip internal meta keys
+            if isinstance(schema_info, (int, float)):
+                schema_info = {}
+            max_marks = schema_info.get("max_marks", default_marks)
             group_id = schema_info.get("group", m_key) # Default to self as group
             q_type = schema_info.get("type", "mandatory") # mandatory, optional, or challenge
             
@@ -276,10 +309,9 @@ class SemanticScorer:
             # 1. Exact match
             if m_key in student_segments:
                 res = self.evaluate_single_answer(student_segments[m_key], model_ans)
-                raw_score_normalized = res['score'] / 10.0 # 0.0 to 1.0 (res['score'] is out of 10 currently)
+                raw_score_normalized = res['score'] / 10.0
                 
                 score_data.update(res)
-                # Scale to Actual Max Marks
                 score_data['score'] = round(raw_score_normalized * max_marks, 1)
                 
             # 2. Base match (e.g. Model '1a', Student '1')
@@ -291,6 +323,55 @@ class SemanticScorer:
                 score_data['question'] = f"{m_key} (checked against Q{base_num})"
                 score_data['score'] = round(raw_score_normalized * max_marks, 1)
                 
+            # 3. Semantic best-match fallback: when OCR produces different question
+            #    numbers, find the most similar unmatched student segment
+            elif student_segments:
+                # Find unmatched student segments
+                matched_student_keys = set()
+                for mk in processed_model_keys:
+                    mk_base = re.sub(r'[a-z]', '', mk)
+                    if mk in student_segments:
+                        matched_student_keys.add(mk)
+                    elif mk_base in student_segments:
+                        matched_student_keys.add(mk_base)
+                
+                unmatched_keys = [sk for sk in student_segments if sk not in matched_student_keys]
+                
+                if unmatched_keys:
+                    # Score each unmatched student answer against this model answer
+                    best_match_key = None
+                    best_match_score = -1
+                    best_match_res = None
+                    
+                    model_emb = self.model.encode(model_ans[:500], convert_to_tensor=True)
+                    
+                    for sk in unmatched_keys:
+                        s_text = student_segments[sk]
+                        if len(s_text.strip()) < 10:
+                            continue
+                        s_emb = self.model.encode(s_text[:500], convert_to_tensor=True)
+                        sim = float(util.cos_sim(model_emb, s_emb)[0][0])
+                        
+                        if sim > best_match_score:
+                            best_match_score = sim
+                            best_match_key = sk
+                    
+                    # Only use if similarity is reasonable (> 0.2)
+                    if best_match_key and best_match_score > 0.2:
+                        res = self.evaluate_single_answer(student_segments[best_match_key], model_ans)
+                        raw_score_normalized = res['score'] / 10.0
+                        
+                        score_data.update(res)
+                        score_data['question'] = f"{m_key}"
+                        score_data['score'] = round(raw_score_normalized * max_marks, 1)
+                        score_data['feedback'] += f" (matched to Q{best_match_key})"
+                        
+                        # Mark as matched so other model questions don't reuse it
+                        matched_student_keys.add(best_match_key)
+                        print(f"    [Scoring] Q{m_key} best-matched to student Q{best_match_key} (sim={best_match_score:.2f})")
+                    else:
+                        score_data['score'] = 0
+                        score_data['feedback'] = "Not Attempted"
             else:
                  score_data['score'] = 0
                  score_data['feedback'] = "Not Attempted"
@@ -323,7 +404,7 @@ class SemanticScorer:
                             total_possible += item['max_marks']
                     else:
                         item['selected'] = False
-                        item['feedback'] += " (OR alternative — not counted)"
+                        item['feedback'] += " (OR alternative -- not counted)"
             else:
                 # Single question (mandatory or challenge)
                 item = items[0]
@@ -344,13 +425,30 @@ class SemanticScorer:
             
         final_results.sort(key=lambda x: natural_keys(x['question']))
         
-        print(f"\n[Scoring] Final: {round(total_obtained, 1)} / {total_possible}")
+        # Post-hoc: if we know the actual total marks from the question paper,
+        # scale to match (handles cases where per-question marks were estimated)
+        final_max = total_possible
+        final_obtained = total_obtained
+        
+        if total_marks_hint and total_possible > 0 and total_possible != total_marks_hint:
+            scale_factor = total_marks_hint / total_possible
+            final_obtained = round(total_obtained * scale_factor, 1)
+            final_max = total_marks_hint
+            print(f"[Scoring] Scaling to match detected total: {total_obtained}/{total_possible} -> {final_obtained}/{final_max}")
+            
+            # Also scale individual scores for display consistency
+            for r in final_results:
+                r['score'] = round(r['score'] * scale_factor, 1)
+                r['max_marks'] = round(r['max_marks'] * scale_factor)
+        
+        print(f"\n[Scoring] Final: {round(final_obtained, 1)} / {final_max}")
         for r in final_results:
-            sel = '✓' if r.get('selected') else '✗'
-            print(f"  [{sel}] Q{r['question']}: {r['score']}/{r['max_marks']} ({r.get('type', 'mandatory')})")
+            sel = '[Y]' if r.get('selected') else '[N]'
+            print(f"  {sel} Q{r['question']}: {r['score']}/{r['max_marks']} ({r.get('type', 'mandatory')})")
 
         return {
             "breakdown": final_results,
-            "total_score": round(total_obtained, 1),
-            "max_score": total_possible
+            "total_score": round(final_obtained, 1),
+            "max_score": final_max
         }
+

@@ -1,4 +1,5 @@
 import re
+import math
 from ocr_service import extract_text_from_file
 
 class QuestionPaperParser:
@@ -59,6 +60,9 @@ class QuestionPaperParser:
             return {}
 
         print(f"[QuestionPaper] OCR text preview (first 500 chars):\n{text[:500]}")
+        
+        # Try to detect total marks from the paper (e.g. "Total: 50 Marks", "Max Marks: 50")
+        total_marks_detected = self._detect_total_marks(text)
         print(f"[QuestionPaper] Full OCR text length: {len(text)} chars")
 
         schema = {}
@@ -87,8 +91,11 @@ class QuestionPaperParser:
         print(f"[QuestionPaper] Detected marks from regex: {q_marks}")
         
         if not q_marks:
-            print("[QuestionPaper] WARNING: No marks detected by regex. Schema will be empty.")
-            print("[QuestionPaper] This means all questions will use default marks.")
+            print("[QuestionPaper] WARNING: No marks detected by regex.")
+            if total_marks_detected:
+                print(f"[QuestionPaper] Using detected total marks: {total_marks_detected}")
+                return {"_total_marks": total_marks_detected}
+            print("[QuestionPaper] Schema will be empty -- questions will use default marks.")
             return {}
 
         # 2. Detect OR groups
@@ -173,8 +180,33 @@ class QuestionPaperParser:
                 "group": gid
             }
             
+        # Store total marks if detected
+        if total_marks_detected:
+            schema["_total_marks"] = total_marks_detected
+            
         print(f"[QuestionPaper] Final schema: {schema}")
         return schema
+
+    def _detect_total_marks(self, text):
+        """
+        Try to find total marks mentioned in the question paper.
+        Looks for patterns like 'Total: 50 Marks', 'Max Marks: 50', 'Total Marks: 50'
+        """
+        patterns = [
+            r'(?:total|max(?:imum)?|full)\s*(?:marks?)?\s*[:\=\-]?\s*(\d+)',
+            r'(\d+)\s*(?:total)?\s*marks?\s*(?:total)?',
+            r'marks?\s*[:\=]\s*(\d+)',
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for m in matches:
+                val = int(m)
+                # Reasonable total marks range (20-100 for exams)
+                if 20 <= val <= 100:
+                    print(f"[QuestionPaper] Detected total marks: {val}")
+                    return val
+        return None
 
 def parse_question_paper_file(file_path):
     parser = QuestionPaperParser()

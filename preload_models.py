@@ -11,13 +11,13 @@ print("="*60)
 print("\n[1/2] Loading EasyOCR...")
 import easyocr
 reader = easyocr.Reader(['en'])
-print("✓ EasyOCR loaded successfully!")
+print("[OK] EasyOCR loaded successfully!")
 
 # 2. Load Sentence Transformer
 print("\n[2/2] Loading Sentence Transformer...")
 from sentence_transformers import SentenceTransformer
 model = SentenceTransformer('all-MiniLM-L6-v2')
-print("✓ Sentence Transformer loaded successfully!")
+print("[OK] Sentence Transformer loaded successfully!")
 
 print("\n" + "="*60)
 print("ALL MODELS LOADED! You can now run: python app.py")

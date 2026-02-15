@@ -17,6 +17,11 @@
             <div class="score-label">Total Score</div>
             <div class="total-score">{{ exam_data.total_score }}</div>
             <div class="max-score">out of {{ exam_data.max_score }}</div>
+            {% if exam_data.max_score > 0 %}
+            <div class="score-percent" style="font-size: 1rem; color: rgba(255,255,255,0.8); margin-top: 8px;">
+                {{ ((exam_data.total_score / exam_data.max_score) * 100) | round(1) }}%
+            </div>
+            {% endif %}
         </div>
 
         <div class="question-list">
