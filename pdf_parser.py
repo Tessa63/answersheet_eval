@@ -33,7 +33,7 @@ class ExamParser:
             # Safe fallback: return explicit error or try to find loose numbers.
             # Ideally we warn, but for now let's just return what we have as "0" or "raw"
             if text.strip():
-                 questions["0"] = text.strip() # "0" usually implies preamble/unknown
+                 questions["1"] = text.strip() # Assign as Q1 if no question numbers detected
             return questions
 
         # Iterate pairs

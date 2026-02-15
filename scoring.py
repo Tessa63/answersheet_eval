@@ -236,16 +236,13 @@ class SemanticScorer:
         # Sort keys to process 1, 1a, 1b in order roughly
         model_keys = sorted(model_segments.keys())
         
-        # 1. First, align Model Answers to Schema if exists
-        # If we have a schema, we ideally want to iterate through schema questions.
-        # But our Model Answer file might match 1-to-1 with Schema questions.
-        
-        # We will iterate through MODEL keys as the source of truth for "Correct Answer Content".
-        # But we will look up metadata from Schema.
-        
-        # Fallback if no schema: Assume 10 marks per question, no OR groups.
+        # Fallback if no schema: Assume 3 marks per question (common for short-answer exams)
         if not question_schema:
             question_schema = {}
+        
+        print(f"\n[Scoring] Using question schema: {question_schema}")
+        print(f"[Scoring] Model answer keys: {model_keys}")
+        print(f"[Scoring] Student answer keys: {list(student_segments.keys())}")
             
         # Group results by Schema Group ID to handle OR logic
         grouped_results = {} 
@@ -262,15 +259,17 @@ class SemanticScorer:
             base_num = re.sub(r'[a-z]', '', m_key) # "1a" -> "1"
             
             schema_info = question_schema.get(m_key) or question_schema.get(base_num) or {}
-            max_marks = schema_info.get("max_marks", 10) # Default 10
+            max_marks = schema_info.get("max_marks", 3) # Default 3 marks if no schema
             group_id = schema_info.get("group", m_key) # Default to self as group
+            q_type = schema_info.get("type", "mandatory") # mandatory, optional, or challenge
             
             score_data = {
                 "question": m_key,
                 "score": 0,
                 "max_marks": max_marks,
                 "feedback": "",
-                "details": {}
+                "details": {},
+                "type": q_type  # mandatory, optional, or challenge
             }
             
             # Find Student Answer
@@ -303,35 +302,39 @@ class SemanticScorer:
             
             processed_model_keys.add(m_key)
 
-        # Post-Processing: Handle OR Groups
-        # For each group, we pick the highest score?
-        # Actually, "OR" usually means "Select one of these questions". 
-        # If student answered both, exams usually take the BEST one.
-        
+        # Post-Processing: Handle OR Groups and Challenge Questions
         final_results = []
         total_obtained = 0
         total_possible = 0
         
         for group_id, items in grouped_results.items():
-            # If group has multiple items, it effectively means they are alternatives OR parts.
-            # Wait, parts (1a, 1b) are usually SUMMED. Alternatives (Q1 OR Q2) are MAXED.
-            # The schema should tell us.
-            # Our current schema parser uses "OR" detection to assign same Group ID to alternatives.
-            # So items with SAME Group ID are ALTERNATIVES.
+            has_multiple = len(items) > 1
             
-            # Select the Best score in this group
-            best_item = max(items, key=lambda x: x['score'])
-            
-            # Mark others as "Skipped / Alternative"
-            for item in items:
-                if item == best_item:
-                    item['selected'] = True
+            if has_multiple:
+                # OR group: select the best scoring alternative
+                best_item = max(items, key=lambda x: x['score'])
+                
+                for item in items:
+                    if item == best_item:
+                        item['selected'] = True
+                        # Challenge questions are scored but NOT counted in total
+                        if item.get('type') != 'challenge':
+                            total_obtained += item['score']
+                            total_possible += item['max_marks']
+                    else:
+                        item['selected'] = False
+                        item['feedback'] += " (OR alternative — not counted)"
+            else:
+                # Single question (mandatory or challenge)
+                item = items[0]
+                item['selected'] = True
+                
+                if item.get('type') == 'challenge':
+                    # Challenge questions: show score but don't add to total
+                    item['feedback'] = f"Challenge question (not counted in total). {item.get('feedback', '')}".strip()
+                else:
                     total_obtained += item['score']
                     total_possible += item['max_marks']
-                else:
-                    item['selected'] = False
-                    item['feedback'] += " (Alternative option not selected or lower score)"
-                    # Do not add to total possible if it's an alternative we didn't count
             
             final_results.extend(items)
             
@@ -340,6 +343,11 @@ class SemanticScorer:
             return [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', text)]
             
         final_results.sort(key=lambda x: natural_keys(x['question']))
+        
+        print(f"\n[Scoring] Final: {round(total_obtained, 1)} / {total_possible}")
+        for r in final_results:
+            sel = '✓' if r.get('selected') else '✗'
+            print(f"  [{sel}] Q{r['question']}: {r['score']}/{r['max_marks']} ({r.get('type', 'mandatory')})")
 
         return {
             "breakdown": final_results,

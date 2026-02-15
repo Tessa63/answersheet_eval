@@ -23,7 +23,8 @@
             {% for item in exam_data.breakdown %}
             {% set ratio = item.score / item.max_marks if item.max_marks > 0 else 0 %}
             {% set score_class = 'score-high' if ratio >= 0.8 else 'score-med' if ratio >= 0.5 else 'score-low' %}
-            {% set opacity_class = 'unselected' if item.selected == False else '' %}
+            {% set is_challenge = item.type == 'challenge' %}
+            {% set opacity_class = 'unselected' if item.selected == False or is_challenge else '' %}
 
             <div class="question-card {{ score_class }} {{ opacity_class }}">
                 <div class="q-score-box">
@@ -33,9 +34,15 @@
 
                 <div class="q-content">
                     <div class="q-header">
-                        <div class="q-title">{{ item.question }}</div>
-                        {% if item.selected == False %}
-                        <span class="tag-warning">Not Counted (Alternative)</span>
+                        <div class="q-title">Q{{ item.question }}</div>
+                        {% if is_challenge %}
+                        <span class="tag-warning"
+                            style="background: #6c63ff22; color: #6c63ff; border: 1px solid #6c63ff55;">🏆 Challenge
+                            (Not Counted)</span>
+                        {% elif item.selected == False %}
+                        <span class="tag-warning">Not Counted (OR Alternative)</span>
+                        {% elif item.type == 'optional' %}
+                        <span class="tag" style="background: #e0f2fe; color: #0284c7;">OR Question (Selected)</span>
                         {% endif %}
                     </div>
                     <div class="q-feedback">
