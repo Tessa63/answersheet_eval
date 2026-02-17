@@ -47,13 +47,18 @@ class ExamParser:
             # 4. Skip very short content (likely OCR noise)
             if len(content) < 10:
                 continue
+            
+            # 5. NORMALIZE key: strip leading zeros and letter suffixes
+            #    "02" -> "2", "03" -> "3", "1a" -> "1a" (keep subpart)
+            letter_suffix = re.sub(r'\d', '', q_num_str)  # Extract "a", "b" etc.
+            normalized_key = str(num) + letter_suffix  # "02" -> "2", "1a" -> "1a"
                 
-            # 5. If this question already exists, append content (handles
+            # 6. If this question already exists, append content (handles
             #    cases where OCR splits one answer across matches)
-            if q_num_str in questions:
-                questions[q_num_str] += " " + content
+            if normalized_key in questions:
+                questions[normalized_key] += " " + content
             else:
-                questions[q_num_str] = content
+                questions[normalized_key] = content
                 
         # If nothing parsed, return whole text as Q1
         if not questions and text.strip():

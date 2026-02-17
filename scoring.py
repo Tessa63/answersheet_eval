@@ -188,37 +188,58 @@ class SemanticScorer:
         emb2 = self.model.encode(model_text, convert_to_tensor=True)
         overall_sim = float(util.cos_sim(emb1, emb2)[0][0])
         
-        # 4. Final Score
+        # 4. Final Score — CONCEPT-DRIVEN
+        # Philosophy: if the student covers the key concepts from the model answer,
+        # they deserve the marks. Semantic similarity is a secondary signal.
         if model_concepts:
             concept_score = len(matched_concepts) / len(model_concepts)
         else:
             concept_score = 0
-            
-        # Give more weight to semantic similarity (more reliable with OCR text)
-        # than concept coverage (which depends on clean n-gram extraction)
-        final_score = (0.6 * overall_sim) + (0.4 * concept_score)
         
-        # Boost: if concept coverage is high, trust it
-        if concept_score > 0.8:
-            final_score = max(final_score, concept_score)
+        # Concept coverage is the PRIMARY signal (like a teacher checking key points)
+        # Similarity is a SECONDARY boost for answers that paraphrase well
         
-        # Similarity floor: if overall similarity is strong, don't let
-        # bad concept extraction drag the score to near-zero
+        # Base score from concept coverage (0-85%)
+        final_score = concept_score * 0.85
+        
+        # Similarity boost (up to 15% additional)
+        # Rewards well-articulated answers that semantically match
+        if overall_sim > 0.3:
+            sim_boost = min(overall_sim, 1.0) * 0.15
+            final_score += sim_boost
+        
+        # Floor from overall similarity alone — catches paraphrased answers
+        # where concepts extracted poorly but the overall meaning is correct
         if overall_sim > 0.6:
-            # The answer is semantically similar -- give at least sim-based score
+            # Very similar answers should score well even if concept extraction missed
+            final_score = max(final_score, overall_sim * 0.95)
+        elif overall_sim > 0.45:
             final_score = max(final_score, overall_sim * 0.85)
-        elif overall_sim > 0.4:
-            # Moderate similarity -- give a reasonable floor
+        elif overall_sim > 0.3:
             final_score = max(final_score, overall_sim * 0.7)
+        
+        # Length bonus: reward students who wrote substantial answers
+        student_len = len(student_text.split())
+        model_len = max(len(model_text.split()), 1)
+        length_ratio = min(student_len / model_len, 1.5)
+        if length_ratio > 0.4 and concept_score > 0.3:
+            length_bonus = 0.1 * min(length_ratio, 1.0)
+            final_score += length_bonus
+        
+        # Minimum floor: any non-trivial answer gets at least 20%
+        if student_len >= 5:
+            final_score = max(final_score, 0.20)
             
         final_score = max(0.0, min(1.0, final_score))
         
         # Feedback
         feedback_lines = []
-        if final_score > 0.8:
+        if final_score > 0.75:
             feedback_lines.append("Excellent answer!")
-        elif final_score > 0.5:
+        elif final_score > 0.50:
              feedback_lines.append("Good attempt.")
+        elif final_score > 0.25:
+             feedback_lines.append("Partial answer.")
         else:
              feedback_lines.append("Needs more detail.")
              
@@ -236,6 +257,7 @@ class SemanticScorer:
                 "missing_concepts": missing_concepts
             }
         }
+
 
     def evaluate_exam(self, student_segments, model_segments, question_schema=None):
         """
@@ -277,75 +299,102 @@ class SemanticScorer:
         # Group results by Schema Group ID to handle OR logic
         grouped_results = {} 
         
+        # Track which student keys have already been consumed (by exact, base, or semantic match)
+        # This MUST persist across all model key iterations to prevent reuse
+        globally_matched_students = set()
+        
+        # Pre-compute schema info and score_data for all model keys
+        model_key_info = {}
         for m_key in model_keys:
-            if m_key in processed_model_keys:
-                continue
-                
-            model_ans = model_segments[m_key]
-            
-            # Lookup Schema Info
-            # Schema keys might be "1" while Model key is "1" or "Q1" or "1a".
-            # Try exact match or loose match.
-            base_num = re.sub(r'[a-z]', '', m_key) # "1a" -> "1"
-            
+            base_num = re.sub(r'[a-z]', '', m_key)  # "1a" -> "1"
             schema_info = question_schema.get(m_key) or question_schema.get(base_num) or {}
-            # Skip internal meta keys
             if isinstance(schema_info, (int, float)):
                 schema_info = {}
             max_marks = schema_info.get("max_marks", default_marks)
-            group_id = schema_info.get("group", m_key) # Default to self as group
-            q_type = schema_info.get("type", "mandatory") # mandatory, optional, or challenge
+            group_id = schema_info.get("group", m_key)
+            q_type = schema_info.get("type", "mandatory")
+            
+            model_key_info[m_key] = {
+                "base_num": base_num,
+                "max_marks": max_marks,
+                "group_id": group_id,
+                "q_type": q_type,
+            }
+        
+        # ------------------------------------------------------------------
+        # PASS 1: Exact and base-number matches only (safe, reliable)
+        # These should always be assigned first before semantic fallback
+        # ------------------------------------------------------------------
+        score_data_map = {}  # m_key -> score_data
+        pass1_matched = set()  # model keys that found a match in Pass 1
+        
+        for m_key in model_keys:
+            info = model_key_info[m_key]
+            model_ans = model_segments[m_key]
             
             score_data = {
                 "question": m_key,
                 "score": 0,
-                "max_marks": max_marks,
+                "max_marks": info["max_marks"],
                 "feedback": "",
                 "details": {},
-                "type": q_type  # mandatory, optional, or challenge
+                "type": info["q_type"]
             }
             
-            # Find Student Answer
             # 1. Exact match
-            if m_key in student_segments:
+            if m_key in student_segments and m_key not in globally_matched_students:
                 res = self.evaluate_single_answer(student_segments[m_key], model_ans)
                 raw_score_normalized = res['score'] / 10.0
                 
                 score_data.update(res)
-                score_data['score'] = round(raw_score_normalized * max_marks, 1)
+                score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
+                globally_matched_students.add(m_key)
+                pass1_matched.add(m_key)
+                print(f"    [Pass1] Q{m_key} exact-matched to student Q{m_key}")
                 
             # 2. Base match (e.g. Model '1a', Student '1')
-            elif base_num in student_segments:
-                res = self.evaluate_single_answer(student_segments[base_num], model_ans)
+            elif info["base_num"] in student_segments and info["base_num"] not in globally_matched_students:
+                res = self.evaluate_single_answer(student_segments[info["base_num"]], model_ans)
                 raw_score_normalized = res['score'] / 10.0
                 
                 score_data.update(res)
-                score_data['question'] = f"{m_key} (checked against Q{base_num})"
-                score_data['score'] = round(raw_score_normalized * max_marks, 1)
+                score_data['question'] = f"{m_key} (checked against Q{info['base_num']})"
+                score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
+                globally_matched_students.add(info["base_num"])
+                pass1_matched.add(m_key)
+                print(f"    [Pass1] Q{m_key} base-matched to student Q{info['base_num']}")
+            
+            score_data_map[m_key] = score_data
+        
+        print(f"    [Pass1] Matched {len(pass1_matched)}/{len(model_keys)} model keys via exact/base")
+        print(f"    [Pass1] Consumed student keys: {globally_matched_students}")
+        
+        # ------------------------------------------------------------------
+        # PASS 2: Semantic fallback for remaining unmatched model keys
+        # Only uses student answers NOT consumed in Pass 1
+        # ------------------------------------------------------------------
+        unmatched_model_keys = [mk for mk in model_keys if mk not in pass1_matched]
+        
+        if unmatched_model_keys and student_segments:
+            unmatched_student_keys = [sk for sk in student_segments if sk not in globally_matched_students]
+            print(f"    [Pass2] Unmatched model keys: {unmatched_model_keys}")
+            print(f"    [Pass2] Available student keys: {unmatched_student_keys}")
+            
+            for m_key in unmatched_model_keys:
+                model_ans = model_segments[m_key]
+                info = model_key_info[m_key]
+                score_data = score_data_map[m_key]
                 
-            # 3. Semantic best-match fallback: when OCR produces different question
-            #    numbers, find the most similar unmatched student segment
-            elif student_segments:
-                # Find unmatched student segments
-                matched_student_keys = set()
-                for mk in processed_model_keys:
-                    mk_base = re.sub(r'[a-z]', '', mk)
-                    if mk in student_segments:
-                        matched_student_keys.add(mk)
-                    elif mk_base in student_segments:
-                        matched_student_keys.add(mk_base)
+                # Recompute available student keys (some may have been consumed in this pass)
+                available_keys = [sk for sk in student_segments if sk not in globally_matched_students]
                 
-                unmatched_keys = [sk for sk in student_segments if sk not in matched_student_keys]
-                
-                if unmatched_keys:
-                    # Score each unmatched student answer against this model answer
+                if available_keys:
                     best_match_key = None
                     best_match_score = -1
-                    best_match_res = None
                     
                     model_emb = self.model.encode(model_ans[:500], convert_to_tensor=True)
                     
-                    for sk in unmatched_keys:
+                    for sk in available_keys:
                         s_text = student_segments[sk]
                         if len(s_text.strip()) < 10:
                             continue
@@ -363,24 +412,34 @@ class SemanticScorer:
                         
                         score_data.update(res)
                         score_data['question'] = f"{m_key}"
-                        score_data['score'] = round(raw_score_normalized * max_marks, 1)
+                        score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
                         score_data['feedback'] += f" (matched to Q{best_match_key})"
                         
-                        # Mark as matched so other model questions don't reuse it
-                        matched_student_keys.add(best_match_key)
-                        print(f"    [Scoring] Q{m_key} best-matched to student Q{best_match_key} (sim={best_match_score:.2f})")
+                        globally_matched_students.add(best_match_key)
+                        print(f"    [Pass2] Q{m_key} semantic-matched to student Q{best_match_key} (sim={best_match_score:.2f})")
                     else:
                         score_data['score'] = 0
                         score_data['feedback'] = "Not Attempted"
-            else:
-                 score_data['score'] = 0
-                 score_data['feedback'] = "Not Attempted"
+                        print(f"    [Pass2] Q{m_key} -> Not Attempted (no good semantic match)")
+                else:
+                    score_data['score'] = 0
+                    score_data['feedback'] = "Not Attempted"
+                    print(f"    [Pass2] Q{m_key} -> Not Attempted (no available student keys)")
+                
+                score_data_map[m_key] = score_data
+        elif unmatched_model_keys:
+            for m_key in unmatched_model_keys:
+                score_data_map[m_key]['score'] = 0
+                score_data_map[m_key]['feedback'] = "Not Attempted"
+                print(f"    [Pass2] Q{m_key} -> Not Attempted (no student segments at all)")
 
-            # Add to Group
+        # Add all results to groups
+        for m_key in model_keys:
+            info = model_key_info[m_key]
+            group_id = info["group_id"]
             if group_id not in grouped_results:
                 grouped_results[group_id] = []
-            grouped_results[group_id].append(score_data)
-            
+            grouped_results[group_id].append(score_data_map[m_key])
             processed_model_keys.add(m_key)
 
         # Post-Processing: Handle OR Groups and Challenge Questions

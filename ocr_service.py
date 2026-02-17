@@ -2,6 +2,7 @@ import easyocr
 from PIL import Image, ImageEnhance, ImageFilter
 import re
 import os
+import time
 from pdf2image import convert_from_path
 import sys
 import numpy as np
@@ -121,6 +122,19 @@ def _count_readable_words(text):
     return len(words)
 
 
+def ocr_page_tesseract_only(img_np):
+    """
+    Fast OCR using only Tesseract. Used as fallback when dual engine is too slow.
+    """
+    binary_img = preprocess_for_tesseract(img_np)
+    try:
+        tess_text = pytesseract.image_to_string(binary_img, config='--psm 4 --oem 3')
+        return tess_text
+    except Exception as e:
+        print(f"    Tesseract error: {e}")
+        return ""
+
+
 def ocr_page_dual_engine(img_np):
     """
     Run both EasyOCR and Tesseract on a page, return the better result.
@@ -175,34 +189,64 @@ def ocr_page_dual_engine(img_np):
     return result
 
 
+# Maximum seconds per page before switching to fast mode
+PAGE_TIMEOUT_SECONDS = 120  # 2 minutes per page max for dual engine
+
+
 def extract_text_from_file(file_path):
     """
     Extracts text from a PDF or Image file using dual-engine OCR
     (EasyOCR + Tesseract) with confidence-based selection.
+    
+    Adaptive strategy: starts with dual-engine OCR for best quality,
+    but if a page takes too long (>2min), switches to Tesseract-only
+    for remaining pages to avoid timeout.
     """
     text = ""
+    use_fast_mode = False  # Switch to Tesseract-only if dual engine is too slow
     
     try:
         # -------- PDF HANDLING --------
         if file_path.lower().endswith(".pdf"):
-            # Use higher DPI (200) for better handwriting recognition
+            # Use 150 DPI (good balance of quality vs speed for handwriting)
+            print(f"Converting PDF to images: {os.path.basename(file_path)}")
+            convert_start = time.time()
             if POPPLER_PATH:
-                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=200)
+                images = convert_from_path(file_path, poppler_path=POPPLER_PATH, dpi=150)
             else:
-                images = convert_from_path(file_path, dpi=200)
+                images = convert_from_path(file_path, dpi=150)
             
             total_pages = len(images)
-            print(f"Processing {total_pages} page(s) from: {os.path.basename(file_path)}")
+            convert_time = time.time() - convert_start
+            print(f"Converted {total_pages} page(s) in {convert_time:.1f}s from: {os.path.basename(file_path)}")
                 
             for i, img in enumerate(images, 1):
-                print(f"  OCR page {i}/{total_pages}...")
+                page_start = time.time()
+                mode_label = "FAST" if use_fast_mode else "DUAL"
+                print(f"  OCR page {i}/{total_pages} [{mode_label}]...")
+                
                 # 1. Remove Red Ink first (requires Color image)
                 img_np = np.array(img)
                 no_red_img = remove_red_ink(img_np)
                 
-                # 2. Dual-engine OCR
-                page_text = ocr_page_dual_engine(no_red_img)
+                # 2. OCR (dual or fast mode)
+                if use_fast_mode:
+                    page_text = ocr_page_tesseract_only(no_red_img)
+                else:
+                    page_text = ocr_page_dual_engine(no_red_img)
+                    
+                    # Check if this page was too slow
+                    page_time = time.time() - page_start
+                    print(f"    Page {i} took {page_time:.1f}s")
+                    
+                    if page_time > PAGE_TIMEOUT_SECONDS and i < total_pages:
+                        print(f"    WARNING: Page took >{PAGE_TIMEOUT_SECONDS}s, switching to fast mode for remaining pages")
+                        use_fast_mode = True
+                
                 text += page_text + "\n\n"
+                
+                # Free memory after each page
+                del img_np, no_red_img
 
         # -------- IMAGE HANDLING --------
         else:

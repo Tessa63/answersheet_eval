@@ -50,14 +50,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFileInput('model_file', 'name-model', 'zone-model');
     setupFileInput('question_file', 'name-question', 'zone-question');
 
-    // Loading State with AJAX submission for proper error handling
+    // Loading State with AJAX submission
     const form = document.getElementById('upload-form');
     const overlay = document.getElementById('loading-overlay');
     const loadingTitle = document.getElementById('loading-title');
     const loadingText = document.getElementById('loading-status-text');
 
     form.addEventListener('submit', (e) => {
-        e.preventDefault(); // Prevent default form submission
+        e.preventDefault();
 
         const sFile = document.getElementById('student_file').files;
         const mFile = document.getElementById('model_file').files;
@@ -72,58 +72,61 @@ document.addEventListener('DOMContentLoaded', () => {
         if (loadingTitle) loadingTitle.textContent = 'Analyzing Content...';
         if (loadingText) loadingText.textContent = 'Uploading files...';
 
-        // Build FormData from the form
         const formData = new FormData(form);
+        const startTime = Date.now();
 
-        // --- Poll /progress for real-time status updates ---
-        let pollInterval = setInterval(() => {
-            fetch('/progress')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'processing' && loadingText) {
-                        loadingText.textContent = `Step ${data.step}/${data.total_steps}: ${data.message}`;
-                    } else if (data.status === 'done' && loadingTitle) {
-                        loadingTitle.textContent = 'Almost done...';
-                        loadingText.textContent = 'Preparing results...';
-                    }
-                })
-                .catch(() => {
-                    // Ignore polling errors silently
-                });
-        }, 1500);
-
-        // Submit via fetch for proper error handling
+        // 1. Submit files -- server returns 202 immediately
         fetch('/evaluate', {
             method: 'POST',
             body: formData
         })
             .then(response => {
-                clearInterval(pollInterval); // Stop polling
-
-                if (!response.ok) {
-                    // Server returned an error (400, 500, etc.)
-                    return response.text().then(errText => {
-                        throw new Error(errText || `Server error (${response.status})`);
+                if (!response.ok && response.status !== 202) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || `Server error (${response.status})`);
+                    }).catch(e => {
+                        if (e.message) throw e;
+                        throw new Error(`Server error (${response.status})`);
                     });
                 }
-                return response.text();
-            })
-            .then(html => {
-                // Successfully got the result page — replace the document
-                document.open();
-                document.write(html);
-                document.close();
+                // Files accepted -- start polling for progress
+                startPolling(startTime);
             })
             .catch(error => {
-                clearInterval(pollInterval); // Stop polling on error too
-
-                // Hide the loading overlay
                 overlay.style.display = 'none';
-
-                // Show a user-friendly error
                 const errorMsg = error.message || 'An unknown error occurred.';
-                alert('Evaluation Failed:\n\n' + errorMsg + '\n\nPlease check your files and try again.');
-                console.error('Evaluate error:', error);
+                alert('Upload Failed:\n\n' + errorMsg + '\n\nPlease check your files and try again.');
+                console.error('Upload error:', error);
             });
     });
+
+    function startPolling(startTime) {
+        const pollInterval = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+            fetch('/progress')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'processing' && loadingText) {
+                        loadingText.textContent = `Step ${data.step}/${data.total_steps}: ${data.message} (${timeStr})`;
+                    } else if (data.status === 'done') {
+                        clearInterval(pollInterval);
+                        if (loadingTitle) loadingTitle.textContent = 'Almost done...';
+                        if (loadingText) loadingText.textContent = 'Loading results...';
+                        // Navigate to results page
+                        window.location.href = '/results';
+                    } else if (data.status === 'error') {
+                        clearInterval(pollInterval);
+                        overlay.style.display = 'none';
+                        alert('Evaluation Failed:\n\n' + (data.message || 'Unknown error') + '\n\nPlease check your files and try again.');
+                    }
+                })
+                .catch(() => {
+                    // Ignore polling errors silently
+                });
+        }, 2000);
+    }
 });
