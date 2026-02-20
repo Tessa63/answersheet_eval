@@ -104,20 +104,20 @@ class SemanticScorer:
         Hybrid check: Semantic Score + Keyword Overlap.
         """
         # 1. High Semantic Confidence (Paraphrase)
-        # Reduced from 0.75 to 0.70 based on "Green flora" -> 0.72
-        if best_sem_score > 0.70:
+        # Reduced from 0.70 to 0.65 to be more generous
+        if best_sem_score > 0.65:
             return True
         
         concept_keywords = self.extract_keywords_simple(concept)
         
-        # 2. Moderate Semantic + Exact Keyword Support
-        if best_sem_score > 0.55: # Loosened slightly
+        # 2. Moderate Semantic + Answer likely relevant
+        if best_sem_score > 0.50: 
             student_keywords = self.extract_keywords_simple(student_text)
             if set(concept_keywords) & set(student_keywords):
                 return True
                 
         # 3. Loose Semantic + Fuzzy Keyword Support (Typos/Messy OCR)
-        if best_sem_score > 0.45:
+        if best_sem_score > 0.40:
              if self.fuzzy_keyword_overlap(concept_keywords, student_text):
                  return True
 
@@ -210,9 +210,14 @@ class SemanticScorer:
         
         # Floor from overall similarity alone — catches paraphrased answers
         # where concepts extracted poorly but the overall meaning is correct
-        if overall_sim > 0.6:
-            # Very similar answers should score well even if concept extraction missed
+        # Boosted aggressively for "Human-like" leniency
+        if overall_sim > 0.65:
+            # Very similar answers should score VERY well (at least 80%)
+            final_score = max(final_score, overall_sim * 1.0) # Full value if highly similar
+            final_score = max(final_score, 0.8) # Minimum 80% if similarity > 0.65
+        elif overall_sim > 0.55:
             final_score = max(final_score, overall_sim * 0.95)
+            final_score = max(final_score, 0.6) # Minimum 60% if similarity > 0.55
         elif overall_sim > 0.45:
             final_score = max(final_score, overall_sim * 0.85)
         elif overall_sim > 0.3:
@@ -222,12 +227,12 @@ class SemanticScorer:
         student_len = len(student_text.split())
         model_len = max(len(model_text.split()), 1)
         length_ratio = min(student_len / model_len, 1.5)
-        if length_ratio > 0.4 and concept_score > 0.3:
+        if length_ratio > 0.4 and overall_sim > 0.3:
             length_bonus = 0.1 * min(length_ratio, 1.0)
             final_score += length_bonus
         
         # Minimum floor: any non-trivial answer gets at least 20%
-        if student_len >= 5:
+        if student_len >= 5 and overall_sim > 0.2:
             final_score = max(final_score, 0.20)
             
         final_score = max(0.0, min(1.0, final_score))
@@ -387,8 +392,34 @@ class SemanticScorer:
                 
                 # Recompute available student keys (some may have been consumed in this pass)
                 available_keys = [sk for sk in student_segments if sk not in globally_matched_students]
+
+                # NEW: Check for student sub-parts (e.g. Model '1' vs Student '1a', '1b')
+                # If found, aggregate them and score as one block.
+                # Only if the Model key is a pure number (no sub-part itself)
+                is_pure_num = m_key.isdigit()
+                student_sub_keys = []
+                if is_pure_num:
+                    for sk in available_keys:
+                        # Check if starts with '1' and followed by letter (e.g. '1a')
+                        if sk.startswith(m_key) and len(sk) > len(m_key) and sk[len(m_key)].isalpha():
+                            student_sub_keys.append(sk)
                 
-                if available_keys:
+                if student_sub_keys:
+                    student_sub_keys.sort()
+                    combined_text = " ".join([student_segments[k] for k in student_sub_keys])
+                    
+                    res = self.evaluate_single_answer(combined_text, model_ans)
+                    raw_score_normalized = res['score'] / 10.0
+                    
+                    score_data.update(res)
+                    score_data['question'] = f"{m_key}"
+                    score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
+                    score_data['feedback'] += f" (aggregated from student Q{', Q'.join(student_sub_keys)})"
+                    
+                    globally_matched_students.update(student_sub_keys)
+                    print(f"    [Pass2] Q{m_key} aggregated match to student Q{student_sub_keys}")
+                    
+                elif available_keys:
                     best_match_key = None
                     best_match_score = -1
                     
@@ -448,33 +479,46 @@ class SemanticScorer:
         total_possible = 0
         
         for group_id, items in grouped_results.items():
-            has_multiple = len(items) > 1
+            # Group items by their base question number
+            # e.g. Group "7" contains [7a, 7b, 8].
+            # by_base["7"] = [7a, 7b]
+            # by_base["8"] = [8]
+            by_base = {}
+            for item in items:
+                base = re.sub(r'[a-z]', '', item['question'])
+                if base not in by_base:
+                    by_base[base] = []
+                by_base[base].append(item)
             
-            if has_multiple:
-                # OR group: select the best scoring alternative
-                best_item = max(items, key=lambda x: x['score'])
+            # Calculate total score for each base option
+            base_scores = {}
+            for base, sub_items in by_base.items():
+                total_s = sum(i['score'] for i in sub_items)
+                base_scores[base] = total_s
+            
+            # Identify the WINNING base question
+            # If there's only one base (e.g. Q1), it wins by default
+            if not base_scores:
+                 best_base = None
+            else:
+                 # Break ties by max possible marks? Or just first?
+                 best_base = max(base_scores, key=base_scores.get)
+            
+            # Mark items as selected/not selected
+            for base, sub_items in by_base.items():
+                is_selected = (base == best_base)
                 
-                for item in items:
-                    if item == best_item:
-                        item['selected'] = True
+                for item in sub_items:
+                    item['selected'] = is_selected
+                    
+                    if is_selected:
+                        # Add to total ONLY if selected
                         # Challenge questions are scored but NOT counted in total
                         if item.get('type') != 'challenge':
                             total_obtained += item['score']
                             total_possible += item['max_marks']
                     else:
-                        item['selected'] = False
                         item['feedback'] += " (OR alternative -- not counted)"
-            else:
-                # Single question (mandatory or challenge)
-                item = items[0]
-                item['selected'] = True
-                
-                if item.get('type') == 'challenge':
-                    # Challenge questions: show score but don't add to total
-                    item['feedback'] = f"Challenge question (not counted in total). {item.get('feedback', '')}".strip()
-                else:
-                    total_obtained += item['score']
-                    total_possible += item['max_marks']
             
             final_results.extend(items)
             

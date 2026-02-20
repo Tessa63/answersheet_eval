@@ -53,9 +53,9 @@ class QuestionPaperParser:
             r'([a-z]?\s*[\)\}\]]*)?'          # Optional sub-part like "a)", "b}", etc
             r'\s*[\|\[\(]*\s*'                # Optional pipe, bracket
             r'(.*?)'                          # Question text (non-greedy)
-            r'\s+(\d{1,2})\s*'               # Marks (1-2 digit number before CO)
+            r'\s*(\d{1,2})\s*'               # Marks (1-2 digit number before CO) - RELAXED whitespace
             r'[/\|\s]*'                       # Optional /| separators
-            r'[Cc]+[Oo]+\s*\d'               # CO1, CO2, CO3, cO1, CcO3, etc.
+            r'(?:[Cc]+[Oo]+\s*\d|[Pp]+[Oo]+\s*\d)' # CO1, CO2, or PO1
         )
         
         for line_idx, line in enumerate(lines):
@@ -69,9 +69,10 @@ class QuestionPaperParser:
             q_text = m.group(3) or ""
             
             # Validate: reasonable question number and marks
-            if q_num < 1 or q_num > 20:
+            if q_num < 1 or q_num > 50:
+                print(f"  [QP] Ignored invalid question number: {q_num}")
                 continue
-            if marks < 1 or marks > 20:
+            if marks < 1 or marks > 100:
                 continue
             
             # Build question key
@@ -140,18 +141,10 @@ class QuestionPaperParser:
                 return {"_total_marks": total_marks_detected}
             return {}
 
-        # ===== MERGE SUB-PARTS into parent questions =====
-        # e.g., "7a": 8 and "7b": 8 => "7": 16
-        merged_marks = {}
-        for q_key, marks in q_marks.items():
-            base_num = re.sub(r'[a-z]', '', q_key)
-            if base_num in merged_marks:
-                merged_marks[base_num] += marks
-            else:
-                merged_marks[base_num] = marks
-        
-        print(f"[QuestionPaper] Merged marks: {merged_marks}")
-        q_marks_final = merged_marks
+        # ===== NO MERGING of SUB-PARTS =====
+        # We process 7a, 7b separately so they appear in the schema.
+        # Scoring logic will aggregate them later.
+        q_marks_final = q_marks
         
         # ===== DETECT OR GROUPS =====
         # Find OR markers and figure out which questions they separate
@@ -180,10 +173,13 @@ class QuestionPaperParser:
                 shared_id = min(prev_q, next_q, key=lambda x: int(x))
                 
                 for q in list(groups.keys()):
-                    if q == prev_q or q == next_q:
+                    # Check base number to include sub-parts in the group
+                    # e.g. if prev_q="7", then "7a", "7b" should both get shared_id
+                    base_q = re.sub(r'[a-z]', '', q)
+                    if base_q == prev_q or base_q == next_q:
                         groups[q] = shared_id
                 
-                print(f"[QuestionPaper] OR group: Q{prev_q} and Q{next_q} -> group '{shared_id}'")
+                print(f"[QuestionPaper] OR group: Q{prev_q} (and parts) and Q{next_q} (and parts) -> group '{shared_id}'")
 
         # ===== DETECT CHALLENGE QUESTIONS =====
         challenge_questions = set()

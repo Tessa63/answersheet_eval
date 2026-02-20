@@ -5,8 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Answer AI | Smart Evaluation</title>
+    <meta name="description"
+        content="Effortless answer sheet grading powered by semantic analysis. Upload student answer sheets and model answers for instant AI evaluation.">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
@@ -26,7 +30,7 @@
                         <input type="file" name="student_file" id="student_file" accept=".pdf" required>
                         <span class="icon-placeholder">📄</span>
                         <span class="file-label">Student Answer Sheet</span>
-                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <p class="file-hint">Drag PDF here or click to browse</p>
                         <span class="file-name" id="name-student"></span>
                     </div>
 
@@ -35,21 +39,27 @@
                         <input type="file" name="model_file" id="model_file" accept=".pdf" required>
                         <span class="icon-placeholder">🔑</span>
                         <span class="file-label">Model Answer Key</span>
-                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <p class="file-hint">Drag PDF here or click to browse</p>
                         <span class="file-name" id="name-model"></span>
                     </div>
 
-                    <!-- Question Paper (New) -->
+                    <!-- Question Paper (Optional) -->
                     <div class="upload-zone" id="zone-question">
                         <input type="file" name="question_file" id="question_file" accept=".pdf">
                         <span class="icon-placeholder">📝</span>
-                        <span class="file-label">Question Paper (Optional)</span>
-                        <p style="font-size: 0.8rem; color: #94a3b8;">Drag PDF here or click to browse</p>
+                        <span class="file-label">Question Paper <small
+                                style="color: var(--text-muted); font-weight: 400;">(Optional)</small></span>
+                        <p class="file-hint">Drag PDF here or click to browse</p>
                         <span class="file-name" id="name-question"></span>
                     </div>
                 </div>
 
-                <button type="submit" class="btn-primary">
+                <button type="submit" class="btn-primary" id="btn-evaluate">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="9 11 12 14 22 4"></polyline>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
                     <span>Evaluate Papers</span>
                 </button>
             </form>
@@ -58,7 +68,11 @@
 
     <!-- Loading Overlay -->
     <div id="loading-overlay">
-        <div class="spinner"></div>
+        <div class="spinner-wrap">
+            <div class="spinner-ring"></div>
+            <div class="spinner-ring"></div>
+            <div class="spinner-ring"></div>
+        </div>
         <h3 id="loading-title">Analyzing Content...</h3>
         <p id="loading-status-text">Starting evaluation...</p>
     </div>

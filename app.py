@@ -143,14 +143,30 @@ def evaluate():
 
             # 2. Parsing (Split into Q1, Q2, etc.)
             update_progress(5, "Processing text and correcting OCR errors...")
-            student_segments = parse_exam_file(student_raw)
-            model_segments = parse_exam_file(model_raw)
+            
+            # Parse model answer FIRST to get expected question keys
+            # Use QP schema as hint if available to prevent ghost parts in model answer
+            model_expected = list(q_schema.keys()) if q_schema else None
+            model_segments = parse_exam_file(model_raw, expected_keys=model_expected)
             
             if not model_segments:
                 latest_result["error"] = "Could not detect Question Numbers (e.g., '1.', 'Q1') in the Model Answer PDF. Please ensure standard formatting."
                 progress["status"] = "error"
                 progress["message"] = latest_result["error"]
                 return
+            
+            # Parse student with model keys as hint for page-aware fallback
+            expected_keys = list(model_segments.keys())
+            # Also include schema keys if available
+            if q_schema:
+                for k in q_schema:
+                    if k not in expected_keys and not k.startswith("_"):
+                        expected_keys.append(k)
+            
+            student_segments = parse_exam_file(student_raw, expected_keys=expected_keys)
+            print(f"\n[Parsing] Model keys: {sorted(model_segments.keys())}")
+            print(f"[Parsing] Student keys: {sorted(student_segments.keys())}")
+            print(f"[Parsing] Expected keys hint: {sorted(expected_keys)}")
 
             # Clean individual segments
             all_model_text = ""

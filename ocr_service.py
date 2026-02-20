@@ -243,7 +243,7 @@ def extract_text_from_file(file_path):
                         print(f"    WARNING: Page took >{PAGE_TIMEOUT_SECONDS}s, switching to fast mode for remaining pages")
                         use_fast_mode = True
                 
-                text += page_text + "\n\n"
+                text += page_text + "\n---PAGE_BREAK---\n"
                 
                 # Free memory after each page
                 del img_np, no_red_img

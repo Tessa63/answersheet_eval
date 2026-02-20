@@ -4,26 +4,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Evaluation Report</title>
+    <title>Evaluation Report | Answer AI</title>
+    <meta name="description"
+        content="Answer AI evaluation report — detailed breakdown of student scores with AI-powered semantic analysis.">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
 </head>
 
 <body>
 
     <div class="container">
 
-        <div class="score-summary">
+        <!-- Score Summary Banner -->
+        <div class="score-summary" style="animation: fadeInDown .7s ease both;">
             <div class="score-label">Total Score</div>
             <div class="total-score">{{ exam_data.total_score }}</div>
             <div class="max-score">out of {{ exam_data.max_score }}</div>
             {% if exam_data.max_score > 0 %}
-            <div class="score-percent" style="font-size: 1rem; color: rgba(255,255,255,0.8); margin-top: 8px;">
+            <div class="score-percent">
                 {{ ((exam_data.total_score / exam_data.max_score) * 100) | round(1) }}%
             </div>
             {% endif %}
         </div>
 
+        <!-- Question Breakdown -->
         <div class="question-list">
             {% for item in exam_data.breakdown %}
             {% set ratio = item.score / item.max_marks if item.max_marks > 0 else 0 %}
@@ -41,13 +47,15 @@
                     <div class="q-header">
                         <div class="q-title">Q{{ item.question }}</div>
                         {% if is_challenge %}
-                        <span class="tag-warning"
-                            style="background: #6c63ff22; color: #6c63ff; border: 1px solid #6c63ff55;">🏆 Challenge
-                            (Not Counted)</span>
+                        <span class="tag"
+                            style="background: rgba(124,58,237,.15); color: #a78bfa; border-color: rgba(124,58,237,.25);">🏆
+                            Challenge (Not Counted)</span>
                         {% elif item.selected == False %}
                         <span class="tag-warning">Not Counted (OR Alternative)</span>
                         {% elif item.type == 'optional' %}
-                        <span class="tag" style="background: #e0f2fe; color: #0284c7;">OR Question (Selected)</span>
+                        <span class="tag"
+                            style="background: rgba(6,182,212,.12); color: var(--accent-2); border-color: rgba(6,182,212,.2);">OR
+                            Question (Selected)</span>
                         {% endif %}
                     </div>
                     <div class="q-feedback">
@@ -59,13 +67,26 @@
                         <span class="tag">Coverage: {{ item.details.concept_coverage }}</span>
                     </div>
                     {% endif %}
+
+                    <!-- Score bar -->
+                    <div class="score-bar-track">
+                        <div class="score-bar-fill" style="width: {{ (ratio * 100) | round(1) }}%;"></div>
+                    </div>
                 </div>
             </div>
             {% endfor %}
         </div>
 
-        <div style="text-align: center; margin-top: 40px;">
-            <a href="/" class="btn-secondary">Evaluate Another</a>
+        <!-- Footer -->
+        <div class="footer">
+            <a href="/" class="btn-secondary" style="margin-bottom: 16px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                Evaluate Another
+            </a>
+            <p>Powered by Answer AI</p>
         </div>
     </div>
 
