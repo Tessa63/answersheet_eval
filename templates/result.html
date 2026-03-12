@@ -1,95 +1,173 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="antialiased text-slate-800 bg-slate-900">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Evaluation Report | Answer AI</title>
-    <meta name="description"
-        content="Answer AI evaluation report — detailed breakdown of student scores with AI-powered semantic analysis.">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
-        rel="stylesheet">
+    <meta name="description" content="Answer AI evaluation report — detailed breakdown of student scores with AI-powered semantic analysis.">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .glass-header {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .question-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .question-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
 </head>
 
-<body>
+<body class="min-h-screen bg-slate-900 text-slate-300 relative overflow-x-hidden pb-20">
+    
+    <!-- Background Elements -->
+    <div class="fixed inset-0 z-[-1]">
+        <div class="absolute top-[-10%] -right-20 w-[600px] h-[600px] bg-brand-600/10 rounded-full blur-[100px] mix-blend-screen opacity-50"></div>
+    </div>
 
-    <div class="container">
-
-        <!-- Score Summary Banner -->
-        <div class="score-summary" style="animation: fadeInDown .7s ease both;">
-            <div class="score-label">Total Score</div>
-            <div class="total-score">{{ exam_data.total_score }}</div>
-            <div class="max-score">out of {{ exam_data.max_score }}</div>
-            {% if exam_data.max_score > 0 %}
-            <div class="score-percent">
-                {{ ((exam_data.total_score / exam_data.max_score) * 100) | round(1) }}%
+    <!-- Navigation Header -->
+    <nav class="glass-header sticky top-0 z-40 w-full mb-8">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex-shrink-0 flex items-center gap-2">
+                    <span class="text-2xl">⚡</span>
+                    <span class="font-display font-bold text-xl text-white tracking-tight">Answer AI</span>
+                </div>
+                <div class="flex items-center">
+                    <a href="/" class="text-sm font-medium text-slate-400 hover:text-white transition-colors bg-slate-800/50 hover:bg-slate-700/50 px-4 py-2 rounded-lg border border-slate-700 hover:border-slate-500">
+                        New Evaluation
+                    </a>
+                </div>
             </div>
-            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        <!-- Header / Score Summary Banner -->
+        <div class="bg-gradient-to-br from-slate-800 to-slate-800/80 border border-slate-700/50 rounded-3xl p-8 mb-10 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6" style="animation: fadeInDown .7s ease both;">
+            
+            <div class="text-center md:text-left space-y-1">
+                <h2 class="text-3xl font-display font-bold text-white tracking-tight">Evaluation Report</h2>
+                <p class="text-slate-400 font-medium">Auto-generated via AI Semantic Analysis</p>
+            </div>
+            
+            <div class="flex items-center gap-6 bg-slate-900/50 rounded-2xl p-6 border border-slate-700/50 w-full md:w-auto overflow-hidden relative">
+                <!-- Inner glow -->
+                <div class="absolute inset-0 bg-brand-500/5 blur-xl"></div>
+                
+                <div class="text-center relative z-10 w-full">
+                    <div class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Score</div>
+                    <div class="flex items-baseline justify-center gap-2">
+                        <span class="text-5xl font-display font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-purple-400">{{ exam_data.total_score }}</span>
+                        <span class="text-2xl font-medium text-slate-500">/ {{ exam_data.max_score }}</span>
+                    </div>
+                    {% if exam_data.max_score > 0 %}
+                    <div class="mt-2 inline-flex items-center px-3 py-1 rounded-full bg-slate-800 border border-slate-600">
+                        <span class="text-sm font-bold text-emerald-400">{{ ((exam_data.total_score / exam_data.max_score) * 100) | round(1) }}%</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
         </div>
 
-        <!-- Question Breakdown -->
-        <div class="question-list">
+        <h3 class="text-xl font-display font-bold text-white mb-6 tracking-tight">Question Breakdown</h3>
+
+        <!-- Question List -->
+        <div class="grid gap-5">
             {% for item in exam_data.breakdown %}
             {% set ratio = item.score / item.max_marks if item.max_marks > 0 else 0 %}
-            {% set score_class = 'score-high' if ratio >= 0.8 else 'score-med' if ratio >= 0.5 else 'score-low' %}
+            
+            <!-- Tailwind Color Logic -->
+            {% set color_theme = 'emerald' if ratio >= 0.8 else 'amber' if ratio >= 0.5 else 'rose' %}
+            
             {% set is_challenge = item.type == 'challenge' %}
-            {% set opacity_class = 'unselected' if item.selected == False or is_challenge else '' %}
+            {% set opacity_class = 'opacity-50 grayscale pt-2' if item.selected == False or is_challenge else '' %}
 
-            <div class="question-card {{ score_class }} {{ opacity_class }}">
-                <div class="q-score-box">
-                    <span class="q-score-val">{{ item.score }}</span>
-                    <span class="q-score-max">/ {{ item.max_marks }}</span>
+            <div class="question-card flex flex-col sm:flex-row bg-slate-800/80 border border-slate-700/50 rounded-2xl overflow-hidden shadow-lg {{ opacity_class }}">
+                
+                <!-- Score Block -->
+                <div class="sm:w-32 sm:min-w-[8rem] bg-slate-900/50 sm:border-r border-b sm:border-b-0 border-slate-700/50 flex sm:flex-col items-center justify-center p-4 sm:p-6 gap-2 sm:gap-1">
+                    <span class="text-3xl font-display font-extrabold text-{{ color_theme }}-400">{{ item.score }}</span>
+                    <span class="text-slate-500 font-medium">/ {{ item.max_marks }}</span>
                 </div>
 
-                <div class="q-content">
-                    <div class="q-header">
-                        <div class="q-title">Q{{ item.question }}</div>
+                <!-- Content Block -->
+                <div class="flex-1 p-5 sm:p-6 relative">
+                    <div class="flex flex-wrap items-center gap-3 mb-3">
+                        <h4 class="text-lg font-bold text-white">Question {{ item.question }}</h4>
+                        
+                        <!-- Badges -->
                         {% if is_challenge %}
-                        <span class="tag"
-                            style="background: rgba(124,58,237,.15); color: #a78bfa; border-color: rgba(124,58,237,.25);">🏆
-                            Challenge (Not Counted)</span>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                            🏆 Challenge
+                        </span>
                         {% elif item.selected == False %}
-                        <span class="tag-warning">Not Counted (OR Alternative)</span>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                            Not Counted (OR alternative)
+                        </span>
                         {% elif item.type == 'optional' %}
-                        <span class="tag"
-                            style="background: rgba(6,182,212,.12); color: var(--accent-2); border-color: rgba(6,182,212,.2);">OR
-                            Question (Selected)</span>
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                            Selected Option
+                        </span>
                         {% endif %}
                     </div>
-                    <div class="q-feedback">
+                    
+                    <p class="text-slate-300 text-sm md:text-base leading-relaxed mb-4">
                         {{ item.feedback }}
-                    </div>
+                    </p>
+                    
                     {% if item.details %}
-                    <div class="q-meta">
-                        <span class="tag">Similarity: {{ item.details.similarity }}</span>
-                        <span class="tag">Coverage: {{ item.details.concept_coverage }}</span>
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-900 border border-slate-700 text-slate-400">
+                            <span class="opacity-70 mr-1">Similarity:</span> {{ item.details.similarity }}
+                        </span>
+                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-slate-900 border border-slate-700 text-slate-400">
+                            <span class="opacity-70 mr-1">Coverage:</span> {{ item.details.concept_coverage }}
+                        </span>
                     </div>
                     {% endif %}
 
                     <!-- Score bar -->
-                    <div class="score-bar-track">
-                        <div class="score-bar-fill" style="width: {{ (ratio * 100) | round(1) }}%;"></div>
+                    <div class="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden absolute bottom-0 left-0">
+                        <div class="h-full bg-{{ color_theme }}-500 transition-all duration-1000 ease-out" style="width: {{ (ratio * 100) | round(1) }}%;"></div>
                     </div>
                 </div>
             </div>
             {% endfor %}
         </div>
-
-        <!-- Footer -->
-        <div class="footer">
-            <a href="/" class="btn-secondary" style="margin-bottom: 16px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                </svg>
-                Evaluate Another
-            </a>
-            <p>Powered by Answer AI</p>
-        </div>
+        
     </div>
 
 </body>
-
 </html>

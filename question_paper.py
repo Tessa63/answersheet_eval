@@ -45,17 +45,19 @@ class QuestionPaperParser:
         lines = text.split('\n')
         
         # ===== PER-LINE DETECTION =====
-        # Pattern: line contains question number at start AND marks+CO at end
-        # End-of-line marks pattern: <number> followed by optional |/| then CO<digit>
+        # Pattern: line contains question number at start AND marks+CO at end.
+        # STRICT: q_num must be 1-2 digits (1-15 range), marks must be ≤ 20.
+        # This prevents matching header rows like "10784 ... 50 |CO1".
         line_pattern = re.compile(
-            r'^\s*(\d{1,2})\s*'              # Question number (1-2 digits)
-            r'[\.\)]*\s*'                     # Optional . or )
+            r'^\s*(\d{1,2})\s*'              # Question number (STRICT: 1-2 digits only)
+            r'[\.)\]]*\s*'                    # Optional . or )
             r'([a-z]?\s*[\)\}\]]*)?'          # Optional sub-part like "a)", "b}", etc
-            r'\s*[\|\[\(]*\s*'                # Optional pipe, bracket
+            r'\s*[\|\[\(\/\\]*\s*'                # Optional pipe, bracket, slash
             r'(.*?)'                          # Question text (non-greedy)
-            r'\s*(\d{1,2})\s*'               # Marks (1-2 digit number before CO) - RELAXED whitespace
-            r'[/\|\s]*'                       # Optional /| separators
-            r'(?:[Cc]+[Oo]+\s*\d|[Pp]+[Oo]+\s*\d)' # CO1, CO2, or PO1
+            r'\s+(\d{1,2})\s*'               # Marks (1-2 digits) — must follow whitespace
+            r'[I/l\|\s\\]*'                       # Optional /| separators (with I,l for bad OCR PIPES)
+            r'(?:(?:[Cc]+[Oo]+\s*\d|[Pp]+[Oo]+\s*\d)\s*)?'  # CO/PO marker OPTIONAL
+            r'$'                              # Must be end of line — prevents mid-text digit matches
         )
         
         for line_idx, line in enumerate(lines):
@@ -64,15 +66,16 @@ class QuestionPaperParser:
                 continue
             
             q_num = int(m.group(1))
-            sub_part = (m.group(2) or "").strip().rstrip(')]}')
+            sub_part = (m.group(2) or "").strip().rstrip(']}')
             marks = int(m.group(4))
             q_text = m.group(3) or ""
             
-            # Validate: reasonable question number and marks
-            if q_num < 1 or q_num > 50:
-                print(f"  [QP] Ignored invalid question number: {q_num}")
+            # Validate: reasonable question number (1-15) and per-question marks (1-20)
+            if q_num < 1 or q_num > 15:
+                print(f"  [QP] Ignored out-of-range Q#: {q_num}")
                 continue
-            if marks < 1 or marks > 100:
+            if marks < 1 or marks > 20:  # Per-question marks; total marks rows > 20
+                print(f"  [QP] Ignored implausible marks for Q{q_num}: {marks}")
                 continue
             
             # Build question key
@@ -101,14 +104,14 @@ class QuestionPaperParser:
         if not q_marks:
             print("[QuestionPaper] Per-line detection failed, trying classic patterns...")
             classic_pattern = re.compile(
-                r'(?:^|\n)\s*(?:Q|Question)?\s*(\d+[a-z]?)\s*[\.:\)\]\-\_]?\s*'
+                r'(?:^|\n)\s*(?:Q|Question|Qn)?\s*\.?\s*(\d+[a-z]?)\s*[\.:\)\]\-\_]?\s*'
                 r'(.*?)'
                 r'(?:'
                 r'\[(\d+)\s*[Mm](?:arks)?\]'
                 r'|'
                 r'\((\d+)\s*[Mm](?:arks)?\)'
                 r'|'
-                r'[Mm]arks?\s*[\:\=]\s*(\d+)'
+                r'[Mm]arks?\s*[\:\=\-]\s*(\d+)'
                 r'|'
                 r'(\d+)\s+[Mm]arks?'
                 r')',
@@ -137,6 +140,17 @@ class QuestionPaperParser:
         
         if not q_marks:
             print("[QuestionPaper] WARNING: No marks detected by any method.")
+            if total_marks_detected:
+                return {"_total_marks": total_marks_detected}
+            return {}
+
+        # ===== SCHEMA SANITY CHECK =====
+        # If the detected schema looks garbage (e.g., max Q# > 20, or only one question
+        # was found but it has the full total marks), fall back to distributing evenly.
+        max_q_num = max(int(re.sub(r'[a-z]', '', k)) for k in q_marks if re.sub(r'[a-z]', '', k).isdigit())
+        if max_q_num > 20:
+            print(f"[QuestionPaper] SCHEMA GARBAGE DETECTED (max Q# = {max_q_num} > 20). Discarding and rebuilding from total marks.")
+            q_marks = {}
             if total_marks_detected:
                 return {"_total_marks": total_marks_detected}
             return {}
@@ -231,6 +245,13 @@ class QuestionPaperParser:
             
         if total_marks_detected:
             schema["_total_marks"] = total_marks_detected
+
+        # ===== BUILD FALLBACK SCHEMA if nothing useful was detected =====
+        # This handles cases where per-line and classic detection both produce garbage
+        # but we at least know the total marks.
+        if not q_marks and total_marks_detected and not schema:
+            print(f"[QuestionPaper] Building fallback schema: 10 questions × {total_marks_detected//10} marks each")
+            schema["_total_marks"] = total_marks_detected
             
         print(f"[QuestionPaper] Final schema: {schema}")
         return schema
@@ -242,6 +263,7 @@ class QuestionPaperParser:
         patterns = [
             r'(?:total|max(?:imum)?|full)\s*(?:marks?)\s*[:\=\-]?\s*(\d+)',
             r'(\d+)\s*(?:total)\s*marks?',
+            r'(?:Max\.?\s*Marks?)\s*[:\=\-]?\s*(\d+)',
         ]
         
         for pattern in patterns:

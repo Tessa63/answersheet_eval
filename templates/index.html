@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="antialiased text-slate-800 bg-slate-900">
 
 <head>
     <meta charset="UTF-8">
@@ -7,77 +7,317 @@
     <title>Answer AI | Smart Evaluation</title>
     <meta name="description"
         content="Effortless answer sheet grading powered by semantic analysis. Upload student answer sheets and model answers for instant AI evaluation.">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
-        rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+    <!-- Optional: Add specific Tailwind config if needed -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    },
+                    backgroundImage: {
+                        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom animations & glassmorphism */
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .upload-zone {
+            transition: all 0.3s ease;
+        }
+        .upload-zone:hover {
+            transform: translateY(-2px);
+            background: rgba(43, 56, 78, 0.8);
+            border-color: rgba(99, 102, 241, 0.5);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .upload-zone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        /* Loading spinner animation */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.5; }
+        }
+        .spinner-ring {
+            animation: pulse-ring 2s infinite ease-in-out;
+            border: 3px solid transparent;
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            width: 4rem;
+            height: 4rem;
+            position: absolute;
+        }
+        .spinner-ring:nth-child(2) {
+            animation-delay: -0.5s;
+            border-top-color: #a855f7;
+            width: 3rem;
+            height: 3rem;
+        }
+        
+        #loading-overlay {
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.4s ease;
+        }
+        #loading-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
 </head>
 
-<body>
+<body class="min-h-screen relative overflow-x-hidden selection:bg-brand-500 selection:text-white">
+    
+    <!-- Background Elements -->
+    <div class="fixed inset-0 z-[-1] bg-slate-900">
+        <div class="absolute top-0 -left-60 w-[800px] h-[800px] bg-brand-900/30 rounded-full blur-[120px] mix-blend-screen mix-blend-screen opacity-50"></div>
+        <div class="absolute bottom-0 -right-60 w-[600px] h-[600px] bg-purple-900/20 rounded-full blur-[100px] mix-blend-screen mix-blend-screen opacity-40"></div>
+    </div>
 
-    <div class="container">
-        <header class="header">
-            <h1>Answer AI</h1>
-            <p class="subtitle">Effortless answer sheet grading powered by semantic analysis.</p>
+    <!-- Main Container -->
+    <div class="relative z-10 container mx-auto px-4 py-16 max-w-4xl min-h-screen flex flex-col justify-center">
+        
+        <!-- Header -->
+        <header class="text-center mb-12 space-y-4">
+            <h1 class="font-display text-5xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-purple-400 tracking-tight">
+                Answer AI
+            </h1>
+            <p class="text-slate-400 text-lg max-w-2xl mx-auto font-medium">
+                Effortless answer sheet grading powered by semantic analysis. <br class="hidden sm:block"/> Get instant, accurate evaluations for descriptive answers.
+            </p>
         </header>
 
-        <main class="card">
-            <form action="/evaluate" method="post" enctype="multipart/form-data" id="upload-form">
-
-                <div class="upload-grid">
+        <!-- Upload Card -->
+        <main class="glass-card rounded-3xl p-8 md:p-10 shadow-2xl relative overflow-hidden">
+            <!-- Decorative interior glow -->
+            <div class="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-24 bg-brand-500/10 blur-3xl rounded-full"></div>
+            
+            <form action="/evaluate" method="post" enctype="multipart/form-data" id="upload-form" class="relative z-10">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                    
                     <!-- Student File -->
-                    <div class="upload-zone" id="zone-student">
-                        <input type="file" name="student_file" id="student_file" accept=".pdf" required>
-                        <span class="icon-placeholder">📄</span>
-                        <span class="file-label">Student Answer Sheet</span>
-                        <p class="file-hint">Drag PDF here or click to browse</p>
-                        <span class="file-name" id="name-student"></span>
+                    <div class="upload-zone relative group flex flex-col items-center justify-center p-8 bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-600 focus-within:border-brand-500 focus-within:ring-2 ring-brand-500/20" id="zone-student">
+                        <input type="file" name="student_file" id="student_file" accept=".pdf" required aria-label="Upload Student Answer Sheet">
+                        <div class="h-16 w-16 mb-4 rounded-full bg-slate-700/50 flex items-center justify-center group-hover:bg-brand-500/20 group-hover:text-brand-400 transition-colors text-3xl">
+                            📄
+                        </div>
+                        <span class="font-semibold text-slate-200 mb-1">Student Answer Sheet</span>
+                        <p class="text-sm text-slate-400 text-center">Drag PDF here or click to browse</p>
+                        <span class="file-name mt-3 text-sm font-medium text-brand-400 truncate w-full text-center px-4" id="name-student"></span>
                     </div>
 
                     <!-- Model File -->
-                    <div class="upload-zone" id="zone-model">
-                        <input type="file" name="model_file" id="model_file" accept=".pdf" required>
-                        <span class="icon-placeholder">🔑</span>
-                        <span class="file-label">Model Answer Key</span>
-                        <p class="file-hint">Drag PDF here or click to browse</p>
-                        <span class="file-name" id="name-model"></span>
+                    <div class="upload-zone relative group flex flex-col items-center justify-center p-8 bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-600 focus-within:border-purple-500 focus-within:ring-2 ring-purple-500/20" id="zone-model">
+                        <input type="file" name="model_file" id="model_file" accept=".pdf" required aria-label="Upload Model Answer Key">
+                        <div class="h-16 w-16 mb-4 rounded-full bg-slate-700/50 flex items-center justify-center group-hover:bg-purple-500/20 group-hover:text-purple-400 transition-colors text-3xl">
+                            🔑
+                        </div>
+                        <span class="font-semibold text-slate-200 mb-1">Model Answer Key</span>
+                        <p class="text-sm text-slate-400 text-center">Drag PDF here or click to browse</p>
+                        <span class="file-name mt-3 text-sm font-medium text-purple-400 truncate w-full text-center px-4" id="name-model"></span>
                     </div>
 
                     <!-- Question Paper (Optional) -->
-                    <div class="upload-zone" id="zone-question">
-                        <input type="file" name="question_file" id="question_file" accept=".pdf">
-                        <span class="icon-placeholder">📝</span>
-                        <span class="file-label">Question Paper <small
-                                style="color: var(--text-muted); font-weight: 400;">(Optional)</small></span>
-                        <p class="file-hint">Drag PDF here or click to browse</p>
-                        <span class="file-name" id="name-question"></span>
+                    <div class="upload-zone relative group flex flex-col items-center justify-center p-8 bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-600 focus-within:border-teal-500 focus-within:ring-2 ring-teal-500/20 md:col-span-2 md:w-2/3 mx-auto mt-2" id="zone-question">
+                        <input type="file" name="question_file" id="question_file" accept=".pdf" aria-label="Upload Question Paper">
+                        <div class="h-14 w-14 mb-3 rounded-full bg-slate-700/50 flex items-center justify-center group-hover:bg-teal-500/20 group-hover:text-teal-400 transition-colors text-2xl">
+                            📝
+                        </div>
+                        <span class="font-semibold text-slate-200 mb-1">Question Paper <span class="font-normal text-slate-400 ml-1 text-sm">(Optional)</span></span>
+                        <p class="text-sm text-slate-400 text-center">Drag PDF here or click to browse</p>
+                        <span class="file-name mt-3 text-sm font-medium text-teal-400 truncate w-full text-center px-4" id="name-question"></span>
                     </div>
                 </div>
 
-                <button type="submit" class="btn-primary" id="btn-evaluate">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="9 11 12 14 22 4"></polyline>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-                    </svg>
-                    <span>Evaluate Papers</span>
-                </button>
+                <!-- Submit Button -->
+                <div class="flex justify-center">
+                    <button type="submit" class="group relative inline-flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-brand-600 to-purple-600 font-semibold text-white rounded-xl shadow-lg hover:shadow-brand-500/30 hover:-translate-y-0.5 transition-all duration-300 overflow-hidden w-full md:w-auto" id="btn-evaluate">
+                        <!-- Button hover effect -->
+                        <div class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
+                        
+                        <svg class="relative z-10 w-5 h-5 group-hover:rotate-12 transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="9 11 12 14 22 4"></polyline>
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                        </svg>
+                        <span class="relative z-10 text-lg tracking-wide">Evaluate Papers</span>
+                    </button>
+                </div>
             </form>
         </main>
+        
+        <!-- Footer Info -->
+        <p class="text-center text-slate-500 mt-8 text-sm font-medium">
+            Strict AI checking with layout mapping and OCR noise resistance.
+        </p>
     </div>
 
-    <!-- Loading Overlay -->
-    <div id="loading-overlay">
-        <div class="spinner-wrap">
+    <!-- Enhanced Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/90 backdrop-blur-sm">
+        <div class="relative flex items-center justify-center w-24 h-24 mb-8">
             <div class="spinner-ring"></div>
             <div class="spinner-ring"></div>
-            <div class="spinner-ring"></div>
+            <div class="w-2 h-2 bg-white rounded-full"></div>
         </div>
-        <h3 id="loading-title">Analyzing Content...</h3>
-        <p id="loading-status-text">Starting evaluation...</p>
+        
+        <div class="glass-card px-8 py-6 rounded-2xl max-w-sm w-full text-center shadow-2xl">
+            <h3 id="loading-title" class="text-xl font-display font-bold text-white mb-2 tracking-wide">Analyzing Content</h3>
+            
+            <div class="w-full bg-slate-800 rounded-full h-1.5 mb-4 overflow-hidden">
+                <div id="loading-progress-bar" class="bg-gradient-to-r from-brand-500 to-purple-500 h-1.5 rounded-full transition-all duration-500" style="width: 5%"></div>
+            </div>
+            
+            <p id="loading-status-text" class="text-slate-400 font-medium text-sm animate-pulse">Starting evaluation engine...</p>
+        </div>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
-</body>
+    <!-- Script to handle UI interactions and polling -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // File input handling
+            const setupFileInput = (inputId, displayId) => {
+                const input = document.getElementById(inputId);
+                const display = document.getElementById(displayId);
+                const zone = input.closest('.upload-zone');
+                
+                // Highlight drop zone
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    input.addEventListener(eventName, (e) => {
+                        zone.classList.add('border-brand-500', 'bg-slate-800');
+                    });
+                });
+                
+                ['dragleave', 'drop'].forEach(eventName => {
+                    input.addEventListener(eventName, (e) => {
+                        zone.classList.remove('border-brand-500', 'bg-slate-800');
+                    });
+                });
 
+                // Display filename
+                input.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        display.textContent = e.target.files[0].name;
+                        // Add a subtle success state
+                        zone.classList.add('border-slate-500');
+                    } else {
+                        display.textContent = '';
+                        zone.classList.remove('border-slate-500');
+                    }
+                });
+            };
+
+            setupFileInput('student_file', 'name-student');
+            setupFileInput('model_file', 'name-model');
+            setupFileInput('question_file', 'name-question');
+
+            // Form submission & Polling
+            const form = document.getElementById('upload-form');
+            const overlay = document.getElementById('loading-overlay');
+            const statusText = document.getElementById('loading-status-text');
+            const progressBar = document.getElementById('loading-progress-bar');
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                // Show loading
+                overlay.classList.add('active');
+                
+                const formData = new FormData(form);
+                
+                try {
+                    // Start process
+                    const response = await fetch('/evaluate', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.status === 400) {
+                        const errorData = await response.json();
+                        alert("Error: " + errorData.error);
+                        overlay.classList.remove('active');
+                        return;
+                    }
+
+                    // Poll for progress
+                    pollProgress();
+                    
+                } catch (error) {
+                    console.error("Submission failed:", error);
+                    alert("A network error occurred. Please try again.");
+                    overlay.classList.remove('active');
+                }
+            });
+
+            const pollProgress = async () => {
+                try {
+                    const res = await fetch('/progress');
+                    const data = await res.json();
+                    
+                    if (data.status === 'error') {
+                        overlay.classList.remove('active');
+                        alert("Processing Error:\n" + data.message);
+                        return;
+                    }
+                    
+                    if (data.status === 'done') {
+                        statusText.textContent = "Evaluation Complete! Redirecting...";
+                        progressBar.style.width = '100%';
+                        setTimeout(() => {
+                            window.location.href = '/results';
+                        }, 500);
+                        return;
+                    }
+                    
+                    // Update UI
+                    statusText.textContent = data.message;
+                    
+                    // Calculate progress percentage
+                    const step = Math.max(1, data.step);
+                    const total = Math.max(1, data.total_steps);
+                    const percent = (step / total) * 100;
+                    progressBar.style.width = `${percent}%`;
+                    
+                    // Continue polling
+                    setTimeout(pollProgress, 1500);
+                    
+                } catch (err) {
+                    console.error("Polling error:", err);
+                    setTimeout(pollProgress, 2000);
+                }
+            };
+        });
+    </script>
+</body>
 </html>

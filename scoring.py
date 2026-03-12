@@ -15,7 +15,9 @@ def get_model():
 class SemanticScorer:
     def __init__(self):
         self.model = get_model()
-        self.similarity_threshold = 0.65 # Increased to 0.65 to reduce false positives
+        # Lowered from 0.65 -- OCR garbling inherently reduces cosine similarity
+        # even for correct answers. A score of 0.50 is a cleaner paraphrase signal.
+        self.similarity_threshold = 0.50
         self.stop_words = set([
             "a", "an", "the", "and", "or", "but", "is", "are", "was", "were", 
             "in", "on", "at", "to", "for", "with", "by", "of", "it", "that", 
@@ -79,15 +81,21 @@ class SemanticScorer:
     def fuzzy_keyword_overlap(self, concept_keywords, student_text):
         """
         Returns True if any concept keyword is fuzzy-matched in student text.
+        Requires proportional edit distances (no 2-edit matches for 4-letter words).
         """
         student_words = self.extract_keywords_simple(student_text)
         
+        # Heuristic: only allow fuzzy matching if the student's word is reasonably close in length
+        # and doesn't diverge too quickly.
         for tgt in concept_keywords:
+            if len(tgt) < 4:
+                continue # Do not fuzzy match very short words (e.g. "bus", "car", "net")
+                
             for cand in student_words:
-                # Length check
                 if abs(len(cand) - len(tgt)) > 2:
                     continue
-                # First char match (optimization)
+                
+                # First char match (optimization & sanity)
                 if cand[0] != tgt[0]:
                     continue
                     
@@ -95,40 +103,90 @@ class SemanticScorer:
                 diffs = sum(1 for a, b in zip(cand, tgt) if a != b)
                 diffs += abs(len(cand) - len(tgt))
                 
-                if diffs <= 2: # Tolerance of 2 edits
+                # Dynamic tolerance:
+                # 4-5 chars: 1 edit max
+                # 6+ chars: 2 edits max
+                tolerance = 1 if len(tgt) <= 5 else 2
+                
+                if diffs <= tolerance:
                     return True
         return False
 
-    def check_match(self, concept, student_text, best_sem_score):
+    def ocr_noise_ratio(self, text):
+        """
+        Estimate what fraction of the text looks like OCR garbage.
+        High ratio (>0.35) means the text is very noisy and scoring should be lenient.
+        """
+        words = text.split()
+        if not words:
+            return 0.0
+        # Garbage words: contain >= 2 digits mixed with letters, or are mostly non-alpha
+        noise_words = 0
+        for w in words:
+            alpha_chars = sum(c.isalpha() for c in w)
+            digit_chars = sum(c.isdigit() for c in w)
+            if len(w) >= 2 and alpha_chars == 0:   # Purely non-alpha ("---", "...", "##")
+                noise_words += 1
+            elif digit_chars > 0 and alpha_chars > 0 and digit_chars >= alpha_chars:  # Like "42ab"
+                noise_words += 1
+        return noise_words / max(len(words), 1)
+
+    def keyword_rescue_floor(self, model_keywords, student_text):
+        """
+        If ≥2 subject keywords from the model answer appear (even fuzzily) in the
+        student text, guarantee a minimum score floor to prevent total zero-scoring
+        due to OCR degradation.
+        Returns the number of matched keywords.
+        """
+        # Filter: only keep meaty keywords (>5 chars, not a stop word)
+        meaty_kw = [k for k in model_keywords if len(k) > 5 and k not in self.stop_words]
+        if not meaty_kw:
+            return 0
+        
+        matches = 0
+        student_lower = student_text.lower()
+        for kw in meaty_kw:
+            kw_lower = kw.lower()
+            if kw_lower in student_lower:
+                matches += 1
+            elif self.fuzzy_keyword_overlap([kw_lower], student_lower):
+                matches += 1
+                
+        return matches
+
+    def check_match(self, concept, student_text, best_sem_score, noisy_mode=False):
         """
         Hybrid check: Semantic Score + Keyword Overlap.
+        In noisy_mode (high OCR noise), thresholds are relaxed.
         """
+        # Thresholds: lower in noisy_mode since OCR degrades cosine similarity
+        # Relaxed for more "human-like" understanding of meaning
+        high_threshold  = 0.40 if noisy_mode else 0.55
+        mid_threshold   = 0.30 if noisy_mode else 0.45
+        low_threshold   = 0.20 if noisy_mode else 0.35
+
         # 1. High Semantic Confidence (Paraphrase)
-        # Reduced from 0.70 to 0.65 to be more generous
-        if best_sem_score > 0.65:
+        if best_sem_score > high_threshold:
             return True
         
         concept_keywords = self.extract_keywords_simple(concept)
         
         # 2. Moderate Semantic + Answer likely relevant
-        if best_sem_score > 0.50: 
+        if best_sem_score > mid_threshold: 
             student_keywords = self.extract_keywords_simple(student_text)
             if set(concept_keywords) & set(student_keywords):
                 return True
                 
         # 3. Loose Semantic + Fuzzy Keyword Support (Typos/Messy OCR)
-        if best_sem_score > 0.40:
+        if best_sem_score > low_threshold:
              if self.fuzzy_keyword_overlap(concept_keywords, student_text):
                  return True
 
         # 4. Keyword Rescue (Literal match despite bad semantic)
-        # Check literal string
         if concept.lower() in student_text.lower():
              return True
              
-        # Check fuzzy keywords alone? optional
-        # Maybe dangerous if semantic score is trash (0.1).
-        # But if word is "chlorophyll" and student wrote "clorophyl", we should give it.
+        # 5. Fuzzy keyword alone — important for OCR noise
         if self.fuzzy_keyword_overlap(concept_keywords, student_text):
              return True
              
@@ -138,6 +196,7 @@ class SemanticScorer:
     def evaluate_single_answer(self, student_text, model_text):
         """
         Evaluates answer using Granular Concept Matching.
+        Handles OCR-noisy student text with adaptive thresholds.
         """
         if not student_text or not model_text:
             return {"score": 0, "feedback": "Empty answer"}
@@ -145,23 +204,28 @@ class SemanticScorer:
         student_text = student_text.replace('\n', ' ')
         model_text = model_text.replace('\n', ' ')
 
-        # 1. Extract Concepts
+        # Detect OCR noise level in student answer
+        noise_ratio = self.ocr_noise_ratio(student_text)
+        noisy_mode = noise_ratio > 0.30
+        if noisy_mode:
+            print(f"    [Scoring] OCR noisy mode ON (noise_ratio={noise_ratio:.2f})")
+
+        # 1. Extract Concepts from model answer
         model_concepts = self.extract_key_concepts(model_text, top_n=8)
         if not model_concepts:
             model_concepts = [model_text]
 
-        # 2. Variable Windowing (Size 6)
-        # Optimized for catching 3-5 word phrases without too much dilution
+        # 2. Variable Windowing
+        # For short answers (<= 30 words), use the full text (windowing is harmful on short noisy text)
         words = student_text.split()
-        window_size = 6 
+        window_size = 6
         step_size = 3
         windows = []
-        if len(words) <= window_size:
+        if len(words) <= window_size or len(words) <= 30:
             windows.append(student_text)
         else:
             for i in range(0, len(words) - window_size + 1, step_size):
                 windows.append(" ".join(words[i:i+window_size]))
-            # Add the tail if needed
             if len(words) % step_size != 0:
                  windows.append(" ".join(words[-window_size:]))
         
@@ -178,7 +242,7 @@ class SemanticScorer:
             hits = util.semantic_search(concept_emb, window_embeddings, top_k=1)
             best_score = hits[0][0]['score'] if hits and hits[0] else 0.0
             
-            if self.check_match(concept, student_text, best_score):
+            if self.check_match(concept, student_text, best_score, noisy_mode=noisy_mode):
                 matched_concepts.append(concept)
             else:
                 missing_concepts.append(concept)
@@ -188,69 +252,70 @@ class SemanticScorer:
         emb2 = self.model.encode(model_text, convert_to_tensor=True)
         overall_sim = float(util.cos_sim(emb1, emb2)[0][0])
         
-        # 4. Final Score — CONCEPT-DRIVEN
-        # Philosophy: if the student covers the key concepts from the model answer,
-        # they deserve the marks. Semantic similarity is a secondary signal.
+        # 4. Final Score — CONCEPT-DRIVEN (Pure Semantic Grading)
+        # We rely on the AI's holistic understanding of the answer block.
+        # If the whole block means the same thing, it's correct.
+        
+        # --- Base Semantic Score (85% weight) ---
+        sim_multiplier = 1.15 if noisy_mode else 1.0
+        effective_sim = overall_sim * sim_multiplier
+        
+        base_semantic_score = 0.0
+        if effective_sim >= 0.55:
+            base_semantic_score = 1.0       # Perfect conceptual understanding
+        elif effective_sim >= 0.40:
+            # Scale linearly from 0.70 to 1.0
+            fraction = (effective_sim - 0.40) / 0.15
+            base_semantic_score = 0.70 + (0.30 * fraction)
+        elif effective_sim >= 0.20:
+            # Scale linearly from 0.25 to 0.70
+            fraction = (effective_sim - 0.20) / 0.20
+            base_semantic_score = 0.25 + (0.45 * fraction)
+        else:
+            base_semantic_score = 0.0       # Unrelated garbage
+            
+        final_score = base_semantic_score * 0.85
+        
+        # --- Bonus Detail Score (15% weight) ---
+        # If the student happened to nail the specific sub-concepts, they get a bonus.
         if model_concepts:
             concept_score = len(matched_concepts) / len(model_concepts)
         else:
             concept_score = 0
+            
+        final_score += (concept_score * 0.15)
         
-        # Concept coverage is the PRIMARY signal (like a teacher checking key points)
-        # Similarity is a SECONDARY boost for answers that paraphrase well
-        
-        # Base score from concept coverage (0-85%)
-        final_score = concept_score * 0.85
-        
-        # Similarity boost (up to 15% additional)
-        # Rewards well-articulated answers that semantically match
-        if overall_sim > 0.3:
-            sim_boost = min(overall_sim, 1.0) * 0.15
-            final_score += sim_boost
-        
-        # Floor from overall similarity alone — catches paraphrased answers
-        # where concepts extracted poorly but the overall meaning is correct
-        # Boosted aggressively for "Human-like" leniency
-        if overall_sim > 0.65:
-            # Very similar answers should score VERY well (at least 80%)
-            final_score = max(final_score, overall_sim * 1.0) # Full value if highly similar
-            final_score = max(final_score, 0.8) # Minimum 80% if similarity > 0.65
-        elif overall_sim > 0.55:
-            final_score = max(final_score, overall_sim * 0.95)
-            final_score = max(final_score, 0.6) # Minimum 60% if similarity > 0.55
-        elif overall_sim > 0.45:
-            final_score = max(final_score, overall_sim * 0.85)
-        elif overall_sim > 0.3:
-            final_score = max(final_score, overall_sim * 0.7)
-        
-        # Length bonus: reward students who wrote substantial answers
-        student_len = len(student_text.split())
-        model_len = max(len(model_text.split()), 1)
-        length_ratio = min(student_len / model_len, 1.5)
-        if length_ratio > 0.4 and overall_sim > 0.3:
-            length_bonus = 0.1 * min(length_ratio, 1.0)
-            final_score += length_bonus
-        
-        # Minimum floor: any non-trivial answer gets at least 20%
-        if student_len >= 5 and overall_sim > 0.2:
+        # 5. Keyword Rescue Floor: if ≥2 subject keywords found, guarantee ≥35%
+        # But ONLY if the text actually has some length. Prevents zeros from bad OCR.
+        words = student_text.split()
+        model_simple_kws = self.extract_keywords_simple(model_text)
+        kw_hits = self.keyword_rescue_floor(model_simple_kws, student_text)
+        if kw_hits >= 2 and len(words) > 5:
+            final_score = max(final_score, 0.35)
+            print(f"    [Scoring] Keyword rescue: {kw_hits} keywords matched -> floor 35%")
+        elif kw_hits >= 1 and len(words) > 5:
+            final_score = max(final_score, 0.15)
+            
+        # Minimum floor: any non-trivial answer with *some* semantic relevance gets at least 20%
+        if len(words) >= 8 and effective_sim > 0.25:
             final_score = max(final_score, 0.20)
             
         final_score = max(0.0, min(1.0, final_score))
         
-        # Feedback
+        # Feedback (Human-like)
         feedback_lines = []
-        if final_score > 0.75:
-            feedback_lines.append("Excellent answer!")
-        elif final_score > 0.50:
-             feedback_lines.append("Good attempt.")
-        elif final_score > 0.25:
-             feedback_lines.append("Partial answer.")
+        if final_score >= 0.85:
+            feedback_lines.append("Excellent understanding of the concept.")
+        elif final_score >= 0.60:
+             feedback_lines.append("Good conceptual grasp, but slightly brief or missing some details.")
+        elif final_score >= 0.35:
+             feedback_lines.append("Partial understanding shown.")
         else:
-             feedback_lines.append("Needs more detail.")
+             feedback_lines.append("Incorrect or insufficient concept.")
              
-        if missing_concepts:
+        if final_score < 0.85 and missing_concepts:
              missed_txt = ", ".join([f"'{c}'" for c in missing_concepts[:2]])
-             feedback_lines.append(f"Consider mentioning: {missed_txt}.")
+             feedback_lines.append(f"Consider adding details like: {missed_txt}.")
 
         return {
             "score": round(final_score * 10, 1),
@@ -286,17 +351,51 @@ class SemanticScorer:
                 total_marks_hint = None
             print(f"[Scoring] Total marks hint from question paper: {total_marks_hint}")
         
-        # Calculate default marks per question
-        num_model_questions = len(model_keys)
-        if total_marks_hint and num_model_questions > 0:
-            # Distribute total marks evenly if we know the total but not individual marks
-            default_marks = round(total_marks_hint / num_model_questions)
+        # ===== GARBAGE SCHEMA DETECTION =====
+        # The question paper parser sometimes produces nonsense keys like Q10784.
+        # Detect this by: any non-meta key with a pure-numeric base > 50,
+        # OR only 1-2 non-meta keys exist but they hold all the total marks
+        # (meaning the parser caught a header row, not actual questions).
+        def _is_garbage_schema(schema, total_marks):
+            real_keys = [k for k in schema if not k.startswith("_") and isinstance(schema[k], dict)]
+            if not real_keys:
+                return False
+            for k in real_keys:
+                base = re.sub(r'[a-z]', '', k)
+                if base.isdigit() and int(base) > 50:
+                    print(f"[Scoring] Garbage schema detected: Q{base} > 50. Ignoring schema.")
+                    return True
+            # Also garbage if: only 1-2 keys but total marks sum equals total_marks
+            if total_marks and len(real_keys) <= 2:
+                marks_sum = sum(schema[k].get("max_marks", 0) for k in real_keys if isinstance(schema[k], dict))
+                if marks_sum >= total_marks:
+                    print(f"[Scoring] Garbage schema: only {len(real_keys)} keys with marks={marks_sum} = total. Ignoring.")
+                    return True
+            return False
+
+        if _is_garbage_schema(question_schema, total_marks_hint):
+            # Reset schema to just the total marks hint so even distribution kicks in
+            question_schema = {"_total_marks": total_marks_hint} if total_marks_hint else {}
+
+        # Calculate default marks per question.
+        # Use unique OR-groups as denominator so paired alternatives (7a+7b OR 8)
+        # don't inflate the count and underestimate per-question marks.
+        if total_marks_hint and len(model_keys) > 0:
+            # Count distinct OR groups from the (already sanitised) schema
+            real_schema_keys = [k for k in question_schema if not k.startswith("_") and isinstance(question_schema[k], dict)]
+            if real_schema_keys:
+                group_ids = set(question_schema[k].get("group", k) for k in real_schema_keys)
+                num_distinct_groups = max(len(group_ids), 1)
+            else:
+                num_distinct_groups = len(model_keys)
+            default_marks = round(total_marks_hint / num_distinct_groups)
             default_marks = max(1, default_marks)  # At least 1 mark
-            print(f"[Scoring] Computed default marks per question: {default_marks} ({total_marks_hint}/{num_model_questions})")
+            print(f"[Scoring] Computed default marks per question: {default_marks} ({total_marks_hint}/{num_distinct_groups} groups)")
         else:
             default_marks = 5  # University exams commonly use 5-mark questions
+            print(f"[Scoring] WARNING: No total marks hint — defaulting to {default_marks} marks per question. Upload a question paper for accurate marks.")
         
-        print(f"\n[Scoring] Using question schema: {question_schema}")
+        print(f"\n[Scoring] Using question schema (after sanity check): {question_schema}")
         print(f"[Scoring] Model answer keys: {model_keys}")
         print(f"[Scoring] Student answer keys: {list(student_segments.keys())}")
         print(f"[Scoring] Default marks per question: {default_marks}")
@@ -339,6 +438,7 @@ class SemanticScorer:
             
             score_data = {
                 "question": m_key,
+                "_base_key": m_key,   # FIX: preserve clean key before any annotation added
                 "score": 0,
                 "max_marks": info["max_marks"],
                 "feedback": "",
@@ -485,7 +585,11 @@ class SemanticScorer:
             # by_base["8"] = [8]
             by_base = {}
             for item in items:
-                base = re.sub(r'[a-z]', '', item['question'])
+                # FIX: use _base_key (the original, unannotated key) for grouping.
+                # item['question'] may be annotated e.g. "1 (checked against Q1)" which
+                # caused re.sub to produce "1 ( 1)" instead of "1", breaking score totals.
+                raw_key = item.get('_base_key', item['question'])
+                base = re.sub(r'[a-z]', '', raw_key)
                 if base not in by_base:
                     by_base[base] = []
                 by_base[base].append(item)

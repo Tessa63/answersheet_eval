@@ -22,8 +22,15 @@ PAGE_HEADER_RE = re.compile(
 
 class ExamParser:
     def __init__(self):
+        # Broad pattern to catch OCR-mangled question markers:
+        # Handles: "1.", "Q1", "Q.1", "1)", "(1)", "01.", "Ans 1", "Q1:", "1a", "9a)"
+        # Tolerates a leading zero (OCR sometimes reads "1" as "01")
         self.question_start_pattern = re.compile(
-            r'(?:^|\n)\s*(?:Q|Question|Ans|Answer)?\.?\s*[\.\-]?\s*(\d+[a-z]?)\s*[\.\:\-\)\_\ ]',
+            r'(?:^|\n)\s*'
+            r'(?:Q(?:uestion|\.)?\s*|Ans(?:wer)?\s*\.?\s*)?'  # Optional prefix: Q, Question, Ans
+            r'[\(\[]?'                                           # Optional leading ( or [
+            r'0?(\d{1,2}[a-z]?)'                                # The actual number, tolerate leading 0
+            r'[\)\]\.\/\:\-\_\ \\]',                           # Separator: ) ] . / : - _ space \
             re.IGNORECASE
         )
 
@@ -45,7 +52,11 @@ class ExamParser:
             return questions
 
         current_parent_num = None
-        
+        # Monotonic ordering guard: once we've seen Q7, lines starting with "1)",
+        # "2)", "3)" are numbered BULLETS inside an answer -- not new Q1/Q2/Q3.
+        max_q_seen = 0
+        last_subpart_key = None  # last sub-part key written (e.g. "7a") for bullet appending
+
         # We iterate over the split pieces. 
         # split_data[0] is text before first match (usually header/empty)
         # split_data[1] is first match group (question number)
@@ -64,7 +75,21 @@ class ExamParser:
             num_val = int(pure_num)
             if num_val < 1 or num_val > 50: # Sanity check
                 continue
-                
+
+            # --- MONOTONIC ORDERING GUARD ---
+            # If we've seen a question number >= 4 already, and this new number is
+            # small (<= 3) and below what we've seen, it's a numbered bullet inside
+            # an answer (e.g. "1) First point" inside Q7a), NOT a new question.
+            if max_q_seen >= 4 and num_val <= 3 and num_val < max_q_seen:
+                append_target = last_subpart_key or current_parent_num
+                if append_target and append_target in questions:
+                    questions[append_target] += " " + q_key_raw + " " + content
+                elif current_parent_num and current_parent_num in questions:
+                    questions[current_parent_num] += " " + q_key_raw + " " + content
+                continue  # Don't register as a new question
+
+            max_q_seen = max(max_q_seen, num_val)
+
             # If it's just a number like "9", set it as current parent
             if pure_num == q_key_raw:
                 current_parent_num = pure_num
@@ -100,13 +125,34 @@ class ExamParser:
                         questions[full_key] += " " + sub_text
                     else:
                         questions[full_key] = sub_text
+                    last_subpart_key = full_key  # track for bullet continuation
             else:
                 # No sub-parts found, just add the content to the main key
                 if normalized_key in questions:
                     questions[normalized_key] += " " + content
                 else:
                     questions[normalized_key] = content
-                
+                # Track sub-keyed questions (e.g. "7a") for bullet appending
+                last_subpart_key = normalized_key if normalized_key != pure_num else None
+
+        # ---------------------------------------------------------------
+        # RESCUE PREAMBLE (split_data[0])
+        # re.split() puts text BEFORE the first match into index 0.
+        # The loop above starts at index 1, so Q1's content is silently
+        # dropped when the student starts writing right at "1." with no
+        # header above it.  Rescue that block here.
+        # ---------------------------------------------------------------
+        preamble = split_data[0].strip() if len(split_data) > 1 else ""
+        if preamble and len(preamble) > 10:
+            if "1" not in questions:
+                # Q1 was never created — the whole preamble IS Q1
+                questions["1"] = preamble
+                print(f"    [Parser] Rescued preamble -> Q1 ({len(preamble)} chars)")
+            elif len(questions.get("1", "")) < len(preamble):
+                # Q1 exists but has very little content; prepend the preamble
+                questions["1"] = preamble + " " + questions["1"]
+                print(f"    [Parser] Prepended preamble to Q1 ({len(preamble)} chars)")
+
         if not questions and clean_text.strip():
             questions["1"] = clean_text.strip()
             
@@ -193,26 +239,28 @@ class ExamParser:
                 # No valid sub-questions found. Return None so the caller treats the whole text as one block.
                 return None
             
-            # Filter out invalid keys?
-            # If 9a is valid but 9c is not in schema...
-            # Usually strictness means: only return what is in schema.
+            # Filter out invalid keys but keep their content by appending it to the previous valid part
             filtered_results = {}
             if "main_intro" in results:
                 filtered_results["main_intro"] = results["main_intro"]
                 
+            last_valid_key = "main_intro" if "main_intro" in results else None
+            
             for k in results:
                 if k == "main_intro": continue
                 if k in expected_keys:
                     filtered_results[k] = results[k]
+                    last_valid_key = k
                 else:
-                     # Invalid key content should probably be appended to previous valid key?
-                     # For now, let's just drop the KEY, but we might lose content.
-                     # Better: append to main_intro or previous valid key.
-                     # Simplest: if we have mixed validity, it's safer to keep all or drop all based on majority?
-                     # No, strict schema means strict.
-                     pass
+                     # Invalid key content should probably be appended to previous valid key
+                     if last_valid_key and last_valid_key in filtered_results:
+                         filtered_results[last_valid_key] += " " + results[k]
+                     elif "main_intro" in filtered_results:
+                         filtered_results["main_intro"] += " " + results[k]
+                     else:
+                         filtered_results["main_intro"] = results[k]
+                         last_valid_key = "main_intro"
             
-            # Better approach: if schema says Q2 has NO parts, valid_sub_keys will be empty -> returns None.
             return filtered_results if valid_sub_keys else None
 
         return results if len(results) > 0 else None
@@ -264,7 +312,8 @@ class ExamParser:
             if PAGE_HEADER_RE.search(line):
                 skip_count = 2
                 continue
-            if re.match(r'^\s*(Sub\s+Total|Maximum\s+Marks|Marks\s+Secured|CO\s*\d|Onos)\s*$', line, re.IGNORECASE):
+            # Strips out numeric noise and short headers
+            if re.match(r'^\s*(Sub\s+Total|Maximum\s+Marks|Marks\s+Secured|CO\s*\d|Onos|Q\.?No\.?|\d+)\s*$', line, re.IGNORECASE):
                 continue
             clean_lines.append(line)
         return '\n'.join(clean_lines)
@@ -321,7 +370,7 @@ class ExamParser:
         expected_count = len([k for k in expected_keys if not k.startswith("_")])
         found_count = len(questions)
         
-        if found_count >= expected_count * 0.6:
+        if found_count >= expected_count * 0.4:  # Lowered from 0.6 -- handwriting OCR is noisy
             return questions
         
         print(f"    [Parser] Standard parsing found {found_count}/{expected_count} expected questions")
