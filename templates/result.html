@@ -78,22 +78,38 @@
             
             <div class="text-center md:text-left space-y-1">
                 <h2 class="text-3xl font-display font-bold text-white tracking-tight">Evaluation Report</h2>
-                <p class="text-slate-400 font-medium">Auto-generated via AI Semantic Analysis</p>
+                {% if exam_data.llm_used %}
+                <p class="text-slate-400 font-medium flex items-center gap-2">
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                        🤖 Scored with DeepSeek AI
+                    </span>
+                    Auto-generated via AI + LLM Analysis
+                </p>
+                {% else %}
+                <p class="text-slate-400 font-medium flex items-center gap-2">
+                    <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-700/50 text-slate-400 border border-slate-600/30">
+                        ⚡ Semantic AI
+                    </span>
+                    Auto-generated via AI Semantic Analysis
+                </p>
+                {% endif %}
             </div>
             
-            <div class="flex items-center gap-6 bg-slate-900/50 rounded-2xl p-6 border border-slate-700/50 w-full md:w-auto overflow-hidden relative">
+            <div class="flex items-center gap-6 bg-slate-900/50 rounded-2xl p-6 border border-slate-700/50 w-full md:w-auto relative" style="min-width:200px;">
                 <!-- Inner glow -->
-                <div class="absolute inset-0 bg-brand-500/5 blur-xl"></div>
+                <div class="absolute inset-0 bg-brand-500/5 blur-xl rounded-2xl pointer-events-none"></div>
                 
                 <div class="text-center relative z-10 w-full">
-                    <div class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Score</div>
-                    <div class="flex items-baseline justify-center gap-2">
-                        <span class="text-5xl font-display font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-purple-400">{{ exam_data.total_score }}</span>
-                        <span class="text-2xl font-medium text-slate-500">/ {{ exam_data.max_score }}</span>
+                    <div class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Score</div>
+                    <div class="flex items-baseline justify-center gap-2 flex-wrap">
+                        <span class="font-display font-extrabold text-white" style="font-size:3.5rem;line-height:1;text-shadow:0 0 30px #6366f1,0 0 60px #a855f7;">{{ exam_data.total_score }}</span>
+                        <span class="text-2xl font-medium text-slate-400">/ {{ exam_data.max_score }}</span>
                     </div>
                     {% if exam_data.max_score > 0 %}
-                    <div class="mt-2 inline-flex items-center px-3 py-1 rounded-full bg-slate-800 border border-slate-600">
-                        <span class="text-sm font-bold text-emerald-400">{{ ((exam_data.total_score / exam_data.max_score) * 100) | round(1) }}%</span>
+                    {% set pct = ((exam_data.total_score / exam_data.max_score) * 100) | round(1) %}
+                    {% set badge_color = 'emerald' if pct >= 50 else 'amber' if pct >= 30 else 'rose' %}
+                    <div class="mt-3 inline-flex items-center px-4 py-1.5 rounded-full bg-slate-800 border border-slate-600">
+                        <span class="text-sm font-bold text-{{ badge_color }}-400">{{ pct }}%</span>
                     </div>
                     {% endif %}
                 </div>
@@ -139,6 +155,11 @@
                         {% elif item.type == 'optional' %}
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-500/10 text-teal-400 border border-teal-500/20">
                             Selected Option
+                        </span>
+                        {% endif %}
+                        {% if item.llm_method %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            🤖 {{ 'Groq DeepSeek' if 'groq' in item.llm_method else 'Local DeepSeek' }}
                         </span>
                         {% endif %}
                     </div>

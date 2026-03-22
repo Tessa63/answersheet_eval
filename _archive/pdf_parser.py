@@ -77,10 +77,24 @@ class ExamParser:
                 continue
 
             # --- MONOTONIC ORDERING GUARD ---
-            # If we've seen a question number >= 4 already, and this new number is
-            # small (<= 3) and below what we've seen, it's a numbered bullet inside
-            # an answer (e.g. "1) First point" inside Q7a), NOT a new question.
-            if max_q_seen >= 4 and num_val <= 3 and num_val < max_q_seen:
+            # Purpose: suppress numbered BULLETS inside answers like
+            #   "1) First point", "2) Second point" inside Q7.
+            # But we must NOT suppress a real Q2 just because we saw Q12 first
+            # (e.g. model PDF has a cover/header page listing Q12 before Q1, Q2...).
+            #
+            # Rules:
+            # 1. If num_val is LOW (<= 3) and max_q_seen is already HIGH (>= 4),
+            #    it's likely a bullet — UNLESS the content is substantial (>= 80 chars)
+            #    which strongly suggests it's a real question, not a bullet.
+            # 2. Exception: if content already starts a new major section (PAGE_BREAK
+            #    or new page header), allow it as a new question regardless.
+            is_likely_bullet = (
+                max_q_seen >= 4 and
+                num_val <= 3 and
+                num_val < max_q_seen and
+                len(content) < 80  # bullets are short; real answers are long
+            )
+            if is_likely_bullet:
                 append_target = last_subpart_key or current_parent_num
                 if append_target and append_target in questions:
                     questions[append_target] += " " + q_key_raw + " " + content
@@ -88,7 +102,17 @@ class ExamParser:
                     questions[current_parent_num] += " " + q_key_raw + " " + content
                 continue  # Don't register as a new question
 
+            # If a substantial "small" number appears after a large one, it likely
+            # means the document re-started numbering (new section). Reset max_q_seen
+            # only if num_val == 1 (start of a new section) or if all previous
+            # questions already have content.
+            if max_q_seen >= 8 and num_val <= 2 and len(content) >= 80:
+                # Allow as a new question even though it breaks monotonic order
+                # (e.g. Q2 at pos 19119 after Q12 was a cover-page artifact)
+                print(f"    [Parser] Sequence reset detected: Q{num_val} after max={max_q_seen} (content len={len(content)})")
+
             max_q_seen = max(max_q_seen, num_val)
+
 
             # If it's just a number like "9", set it as current parent
             if pure_num == q_key_raw:
@@ -361,22 +385,112 @@ class ExamParser:
     def parse_with_page_awareness(self, text, expected_keys=None):
         """
         Enhanced parsing using page boundaries when standard parsing fails.
+        Strategy:
+        1. Standard parsing (regex-based, finds explicit Q1/Q2 markers)
+        2. Page-break splitting (1 page = 1 question for handwritten sheets)
+        3. Trailing-text chunk fallback
         """
         questions = self.parse_text_to_questions(text, expected_keys=expected_keys)
         
         if not expected_keys:
             return questions
         
-        expected_count = len([k for k in expected_keys if not k.startswith("_")])
+        expected_keys_clean = [k for k in expected_keys if not k.startswith("_")]
+        expected_count = len(expected_keys_clean)
         found_count = len(questions)
         
-        if found_count >= expected_count * 0.4:  # Lowered from 0.6 -- handwriting OCR is noisy
+        # Consider "good enough" only if we found at least 80% of expected questions
+        # (was 40% before — but 4/10 = 40% was letting model answer skip page-split)
+        all_found = all(
+            k in questions or re.sub(r'[a-z]', '', k) in {re.sub(r'[a-z]', '', q) for q in questions}
+            for k in expected_keys_clean
+        )
+        if found_count >= expected_count * 0.8 or all_found:
             return questions
         
         print(f"    [Parser] Standard parsing found {found_count}/{expected_count} expected questions")
-        print(f"    [Parser] Trying page-aware parsing as fallback...")
+        # ---- STRATEGY 2: PAGE-BREAK SPLITTING ----
+        # For handwritten answer sheets: student writes 1 question per page.
+        # OCR produces PAGE_BREAK between each page. Split on that first.
+        pages = [p.strip() for p in text.split(PAGE_BREAK) if p.strip() and len(p.strip()) > 30]
         
-        # Find where the last parsed question's content ends in the text
+        if len(pages) >= expected_count * 0.5:
+            print(f"    [Parser] Trying PAGE_BREAK splitting: {len(pages)} pages for {expected_count} expected questions")
+            
+            # First pass: check if any pages already have question labels
+            page_to_q = {}  # page_idx -> question key found  
+            for i, page in enumerate(pages):
+                pq = self.parse_text_to_questions(page)
+                if pq:
+                    page_to_q[i] = list(pq.keys())[0]
+            
+            # Sort expected keys numerically
+            sorted_expected = sorted(
+                expected_keys_clean,
+                key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)]
+            )
+            
+            # KEY FIX: If standard parsing found fewer than 50% of expected questions,
+            # use page-split to better distribute the content.
+            very_few_found = found_count < expected_count * 0.5
+            
+            if very_few_found:
+                print(f"    [Parser] Very few questions found ({found_count}/{expected_count}), forcing full page-split")
+                result = {}
+                # Distribute all pages across all expected question keys
+                pages_per_q = max(1, len(pages) // max(len(sorted_expected), 1))
+                for qi, mk in enumerate(sorted_expected):
+                    start = qi * pages_per_q
+                    end = start + pages_per_q if qi < len(sorted_expected) - 1 else len(pages)
+                    page_texts = [pages[j] for j in range(start, end) if j < len(pages)]
+                    if page_texts:
+                        combined = "\n".join(self._strip_page_headers(p) for p in page_texts)
+                        combined = combined.strip()
+                        if combined:
+                            result[mk] = combined
+                            preview = combined[:50].replace('\n', ' ')
+                            print(f"    [Parser] Page-split (forced): Q{mk} <- {len(page_texts)} page(s): {preview}...")
+                
+                if len(result) > found_count:
+                    print(f"    [Parser] Forced page-split: {found_count} -> {len(result)} questions")
+                    return result
+            
+            else:
+                # Normal case: distribute only unassigned pages
+                already_assigned = set(questions.keys())
+                unassigned_pages = [
+                    (i, pages[i]) for i in range(len(pages))
+                    if page_to_q.get(i) not in already_assigned
+                ]
+                
+                missing_keys = [k for k in sorted_expected if k not in already_assigned
+                                and re.sub(r'[a-z]', '', k) not in {re.sub(r'[a-z]', '', a) for a in already_assigned}]
+                
+                if missing_keys and unassigned_pages:
+                    result = dict(questions)
+                    pages_per_q = max(1, len(unassigned_pages) // max(len(missing_keys), 1))
+                    
+                    for qi, mk in enumerate(missing_keys):
+                        start = qi * pages_per_q
+                        end = start + pages_per_q if qi < len(missing_keys) - 1 else len(unassigned_pages)
+                        page_texts = [unassigned_pages[j][1] for j in range(start, end) if j < len(unassigned_pages)]
+                        
+                        if page_texts:
+                            combined = "\n".join(self._strip_page_headers(p) for p in page_texts)
+                            combined = combined.strip()
+                            if combined:
+                                result[mk] = combined
+                                preview = combined[:50].replace('\n', ' ')
+                                print(f"    [Parser] Page-split: Q{mk} <- {len(page_texts)} page(s) ({len(combined)} chars): {preview}...")
+                    
+                    final_count = len(result)
+                    if final_count > found_count:
+                        print(f"    [Parser] Page-split improved: {found_count} -> {final_count} questions")
+                        return result
+        
+        # ---- STRATEGY 3: TRAILING TEXT CHUNK FALLBACK (original logic) ----
+        print(f"    [Parser] Trying trailing-text chunk fallback...")
+        
         clean_text = text.replace(PAGE_BREAK, "\n")
         last_consumed_pos = 0
         
@@ -389,7 +503,6 @@ class ExamParser:
                     if end_pos > last_consumed_pos:
                         last_consumed_pos = end_pos
         
-        # Find missing expected keys
         found_keys = set(questions.keys())
         found_base_keys = set()
         for k in found_keys:
@@ -412,20 +525,12 @@ class ExamParser:
         if not missing_keys:
             return questions
         
-        # Take trailing text
         if last_consumed_pos > 0 and last_consumed_pos < len(text) - 50:
-            # Normal case: we found some questions, take the rest
             trailing_text = text[last_consumed_pos:]
         elif last_consumed_pos >= len(text) * 0.9:
-            # Case: Q1 (or others) consumed almost EVERYTHING (greedy default).
-            # We should assume missing keys might be ANYWHERE in the text.
-            # So we use the FULL text for fallback splitting.
             trailing_text = text
             print("    [Parser] text consumed > 90%, using FULL text for fallback splitting")
         else:
-            # Fallback: we didn't consume much, but didn't find clear end?
-            # Safe bet: take last 60%? Or maybe just take everything?
-            # Let's take LAST 70% to be safer against header issues
             trailing_text = text[int(len(text) * 0.3):]
         
         print(f"    [Parser] Text consumed: {last_consumed_pos}/{len(text)} chars, "
@@ -435,17 +540,13 @@ class ExamParser:
         if len(trailing_text.strip()) < 30:
             return questions
         
-        # Clean trailing text
         trailing_clean = self._strip_page_headers(trailing_text)
-        
-        # Split trailing text into chunks — one per missing key
         chunks = self._split_text_into_chunks(trailing_clean, len(missing_keys))
         
         print(f"    [Parser] Split trailing text into {len(chunks)} chunks")
         
         result = dict(questions)
         
-        # Assign chunks to missing keys
         for i, missing_key in enumerate(missing_keys):
             if i < len(chunks):
                 result[missing_key] = chunks[i]
@@ -454,7 +555,6 @@ class ExamParser:
             else:
                 break
         
-        # If there are extra chunks, append them to the last assigned key
         last_assigned = missing_keys[min(len(chunks), len(missing_keys)) - 1] if missing_keys else None
         if last_assigned and len(chunks) > len(missing_keys):
             for extra_chunk in chunks[len(missing_keys):]:
@@ -473,3 +573,117 @@ def parse_exam_file(text, expected_keys=None):
     if expected_keys:
         return parser.parse_with_page_awareness(text, expected_keys)
     return parser.parse_text_to_questions(text)
+
+
+def semantic_distribute_student_text(student_raw_text, model_segments, embedding_model):
+    """
+    For answer sheets where question numbers are blacked out or not written.
+
+    Strategy:
+    1. Split student raw text into content chunks using PAGE_BREAK markers,
+       then paragraph gaps, to get one chunk per answer written.
+    2. Embed every chunk and every model answer.
+    3. Greedy assignment: for each model question (in order), pick the
+       highest-similarity unused chunk. This prevents the same chunk
+       being assigned to multiple model questions.
+    4. Any model question with no assigned chunk is left empty (will score
+       "Not Attempted").
+
+    Returns: { '1': 'text...', '2': 'text...', ... }
+    """
+    from sentence_transformers import util
+    import numpy as np
+
+    parser = ExamParser()
+
+    # ---- Step 1: Split into chunks ----
+    # Try page breaks first (one answer per physical page)
+    raw_chunks = [c.strip() for c in student_raw_text.split(PAGE_BREAK) if c.strip() and len(c.strip()) > 30]
+
+    if len(raw_chunks) < 2:
+        # Fall back to splitting on double newlines (paragraph breaks)
+        raw_chunks = re.split(r'\n\s*\n\s*\n', student_raw_text)
+        raw_chunks = [c.strip() for c in raw_chunks if c.strip() and len(c.strip()) > 20]
+
+    if len(raw_chunks) < 2:
+        raw_chunks = re.split(r'\n\s*\n', student_raw_text)
+        raw_chunks = [c.strip() for c in raw_chunks if c.strip() and len(c.strip()) > 20]
+
+    # Strip page headers from each chunk
+    raw_chunks = [parser._strip_page_headers(c).strip() for c in raw_chunks]
+    raw_chunks = [c for c in raw_chunks if c and len(c) > 15]
+
+    if not raw_chunks:
+        print("[SemanticDist] No chunks found — returning empty distribution")
+        return {}
+
+    print(f"[SemanticDist] Found {len(raw_chunks)} student chunks for {len(model_segments)} model questions")
+
+    # ---- Step 2: Embed chunks and model answers ----
+    # Limit embedding text to 512 tokens for speed
+    chunk_texts = [c[:600] for c in raw_chunks]
+    model_keys = sorted(model_segments.keys(),
+                        key=lambda x: [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', x)])
+    model_texts = [model_segments[k][:600] for k in model_keys]
+
+    chunk_embeddings  = embedding_model.encode(chunk_texts,  convert_to_tensor=True, show_progress_bar=False)
+    model_embeddings  = embedding_model.encode(model_texts,  convert_to_tensor=True, show_progress_bar=False)
+
+    # similarity matrix: [n_model_keys  x  n_chunks]
+    from sentence_transformers import util as st_util
+    sim_matrix = st_util.cos_sim(model_embeddings, chunk_embeddings).cpu().numpy()  # shape (M, C)
+
+    # Add a positional prior to the similarity matrix
+    # Student answers are almost always written sequentially. When OCR is garbage,
+    # semantic similarity is random. A strong positional bias keeps the mapping in order.
+    # relative_key_pos is 0.0 to 1.0, relative_chunk_pos is 0.0 to 1.0
+    M = len(model_keys)
+    C = len(raw_chunks)
+    for mi in range(M):
+        rel_m = mi / max(1, M - 1) if M > 1 else 0.5
+        for ci in range(C):
+            rel_c = ci / max(1, C - 1) if C > 1 else 0.5
+            pos_dist = abs(rel_m - rel_c)
+            # Boost by up to 0.3 for being in the exact right relative position.
+            # This is huge for noisy OCR where real sim differences are like 0.05.
+            pos_boost = (1.0 - pos_dist) * 0.3
+            sim_matrix[mi, ci] += pos_boost
+    assigned_chunks = {}   # model_key -> [chunk indices]
+    used_chunks    = set()
+
+    # First pass: give every model question its single best chunk
+    for mi, mk in enumerate(model_keys):
+        sims = sim_matrix[mi].copy()
+        # Mask already-used chunks
+        for ui in used_chunks:
+            sims[ui] = -1.0
+        best_ci = int(np.argmax(sims))
+        best_sim = float(sims[best_ci])
+
+        if best_sim > 0.05:  # very loose threshold — we want to assign something
+            assigned_chunks[mk] = [best_ci]
+            used_chunks.add(best_ci)
+            print(f"[SemanticDist] Q{mk} <- chunk {best_ci} (sim={best_sim:.3f}): {raw_chunks[best_ci][:60].replace(chr(10),' ')}...")
+        else:
+            assigned_chunks[mk] = []
+            print(f"[SemanticDist] Q{mk} <- NO MATCH (best sim={best_sim:.3f})")
+
+    # Second pass: distribute remaining chunks to their best matching model Q
+    leftover_chunks = [ci for ci in range(len(raw_chunks)) if ci not in used_chunks]
+    for ci in leftover_chunks:
+        sims = sim_matrix[:, ci]
+        best_mi = int(np.argmax(sims))
+        best_mk = model_keys[best_mi]
+        assigned_chunks[best_mk].append(ci)
+        print(f"[SemanticDist] Leftover chunk {ci} appended to Q{best_mk} (sim={float(sims[best_mi]):.3f})")
+
+    # ---- Step 4: Build result dict ----
+    result = {}
+    for mk in model_keys:
+        chunk_indices = assigned_chunks.get(mk, [])
+        if chunk_indices:
+            combined = "\n".join(raw_chunks[ci] for ci in sorted(chunk_indices))
+            result[mk] = combined.strip()
+
+    return result
+

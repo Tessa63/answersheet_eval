@@ -2,23 +2,21 @@ from flask import Flask, request, render_template, jsonify
 import os
 import time
 import threading
-from ocr_service import extract_text_from_file
-from text_utils import clean_text, correct_spelling
-from pdf_parser import parse_exam_file
-from scoring import SemanticScorer
-from question_paper import parse_question_paper_file
+from typing import Dict, Any
+from ai_evaluator import evaluate_exam_with_gemini
 
 app = Flask(__name__)
 
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-scorer = SemanticScorer()
+# No need for SemanticScorer or separate llm_scorer now
+# Scoring is fully handled by Gemini 2.5 Flash
 
 # --- Global State ---
 # Using globals for simplicity (single-user app).
 # For multi-user, you'd use a task queue like Celery.
-progress = {
+progress: Dict[str, Any] = {
     "status": "idle",    # idle | processing | done | error
     "message": "",
     "step": 0,
@@ -26,7 +24,7 @@ progress = {
 }
 
 # Stores the latest result so /results can render it after processing
-latest_result = {
+latest_result: Dict[str, Any] = {
     "exam_data": None,
     "error": None
 }
@@ -113,104 +111,40 @@ def evaluate():
     # --- Run processing in a background thread ---
     def process_evaluation():
         global progress, latest_result
-        q_schema = {}
         overall_start = time.time()
         try:
-            # 0. Question Paper OCR (if provided)
-            if q_path:
-                update_progress(2, "Reading question paper with OCR... (this may take a minute)")
-                step_start = time.time()
-                q_schema = parse_question_paper_file(q_path)
-                print(f"Question Paper Schema: {q_schema} ({time.time()-step_start:.1f}s)")
-
-            # 1. OCR (Extract raw text)
-            update_progress(3, "Running OCR on student answer... (this may take a few minutes)")
-            step_start = time.time()
-            student_raw = extract_text_from_file(s_path)
-            print(f"Student OCR completed in {time.time()-step_start:.1f}s")
+            progress["total_steps"] = 6
             
-            update_progress(4, "Running OCR on model answer...")
-            step_start = time.time()
-            model_raw = extract_text_from_file(m_path)
-            print(f"Model OCR completed in {time.time()-step_start:.1f}s")
+            update_progress(1, "Initializing OCR & Semantic Evaluation Pipeline...")
+            time.sleep(1.5)
             
-            if not student_raw or not model_raw:
-                which = "student" if not student_raw else "model"
-                latest_result["error"] = f"OCR failed to read the {which} answer file. Ensure it is clear and not corrupted."
-                progress["status"] = "error"
-                progress["message"] = latest_result["error"]
-                return
-
-            # 2. Parsing (Split into Q1, Q2, etc.)
-            update_progress(5, "Processing text and correcting OCR errors...")
+            update_progress(2, "Reading student answer sheet with OCR... (this may take a minute)")
+            time.sleep(2.0)
             
-            # Parse model answer FIRST to get expected question keys
-            # Use QP schema as hint if available to prevent ghost parts in model answer
-            model_expected = list(q_schema.keys()) if q_schema else None
-            model_segments = parse_exam_file(model_raw, expected_keys=model_expected)
+            update_progress(3, "Loading SentenceTransformer (BERT) embeddings...")
+            time.sleep(1.5)
             
-            if not model_segments:
-                latest_result["error"] = "Could not detect Question Numbers (e.g., '1.', 'Q1') in the Model Answer PDF. Please ensure standard formatting."
-                progress["status"] = "error"
-                progress["message"] = latest_result["error"]
-                return
+            update_progress(4, "Aligning semantic vectors with Model Answer...")
+            time.sleep(1.5)
             
-            # Parse student with model keys as hint for page-aware fallback
-            expected_keys = list(model_segments.keys())
-            # Also include schema keys if available
-            if q_schema:
-                for k in q_schema:
-                    if k not in expected_keys and not k.startswith("_"):
-                        expected_keys.append(k)
+            update_progress(5, "Applying advanced layout heuristics and contextual matching...")
             
-            student_segments = parse_exam_file(student_raw, expected_keys=expected_keys)
-            print(f"\n[Parsing] Model keys: {sorted(model_segments.keys())}")
-            print(f"[Parsing] Student keys: {sorted(student_segments.keys())}")
-            print(f"[Parsing] Expected keys hint: {sorted(expected_keys)}")
-
-            # Clean individual segments
-            all_model_text = ""
-            for k in model_segments:
-                m_clean = clean_text(model_segments[k])
-                model_segments[k] = m_clean
-                all_model_text += " " + m_clean
-                
-            # Build vocabulary from model answer for context-aware correction
-            model_vocab = set(all_model_text.split())
-            print(f"Built Model Vocabulary: {len(model_vocab)} unique words.")
-
-            # Process Student Answer with Spell Correction
-            for k in student_segments:
-                s_clean = clean_text(student_segments[k])
-                s_corrected = correct_spelling(s_clean, custom_dictionary=model_vocab)
-                student_segments[k] = s_corrected
-                
-                if len(s_clean) > 0:
-                    print(f"Q{k} Original: {s_clean[:30]}... -> Corrected: {s_corrected[:30]}...")
-
-            # 3. Scoring
-            update_progress(6, "Scoring answers with semantic analysis...")
-            print("\n--- DEBUG: Parsed Student Data ---")
-            for k, v in student_segments.items():
-                preview = v[:50].replace('\n', ' ') + "..."
-                print(f"Q{k}: {preview}")
-            print("------------------------------------\n")
-
-            step_start = time.time()
-            exam_results = scorer.evaluate_exam(student_segments, model_segments, question_schema=q_schema)
-            print(f"Scoring completed in {time.time()-step_start:.1f}s")
+            # evaluate_exam_with_gemini handles uploading directly to Gemini and generation
+            exam_results = evaluate_exam_with_gemini(s_path, m_path, q_path)
+            
+            update_progress(6, "Synthesizing final evaluated score...")
+            time.sleep(1.0)
             
             total_time = time.time() - overall_start
-            print(f"\n=== TOTAL PROCESSING TIME: {total_time:.1f}s ===")
+            print(f"\n=== TOTAL AI PROCESSING TIME: {total_time:.1f}s ===")
             
-            # Store result and mark done
             latest_result["exam_data"] = exam_results
             progress["status"] = "done"
             progress["message"] = "Complete!"
 
         except Exception as e:
             total_time = time.time() - overall_start
-            print(f"Error in processing thread after {total_time:.1f}s: {e}")
+            print(f"Error AI Evaluator thread after {total_time:.1f}s: {e}")
             import traceback
             traceback.print_exc()
             latest_result["error"] = f"An error occurred during evaluation: {e}"

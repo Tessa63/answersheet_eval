@@ -204,6 +204,47 @@ class SemanticScorer:
         student_text = student_text.replace('\n', ' ')
         model_text = model_text.replace('\n', ' ')
 
+        # ---- IDENTITY SHORTCUT ----
+        # If the cleaned texts are identical or nearly identical (e.g. same PDF
+        # used for both uploads, or student copied model exactly), don't run
+        # the full pipeline — just return full marks immediately.
+        def _quick_clean(t):
+            import re as _re
+            return _re.sub(r'\s+', ' ', _re.sub(r'[^a-z0-9 ]', '', t.lower())).strip()
+
+        s_clean_q = _quick_clean(student_text)
+        m_clean_q = _quick_clean(model_text)
+
+        if s_clean_q and m_clean_q:
+            if s_clean_q == m_clean_q:
+                print("    [Scoring] Identity match — full score awarded")
+                return {
+                    "score": 10.0,
+                    "feedback": "Excellent understanding of the concept.",
+                    "details": {
+                        "similarity": 1.0,
+                        "concept_coverage": 1.0,
+                        "matched_concepts": [],
+                        "missing_concepts": []
+                    }
+                }
+            # Near-identity: one text is a substring of the other (OCR may add noise)
+            shorter, longer = (s_clean_q, m_clean_q) if len(s_clean_q) <= len(m_clean_q) else (m_clean_q, s_clean_q)
+            if len(shorter) >= 20 and shorter in longer:
+                overlap_ratio = len(shorter) / max(len(longer), 1)
+                if overlap_ratio >= 0.80:
+                    print(f"    [Scoring] Near-identity match (ratio={overlap_ratio:.2f}) — full score awarded")
+                    return {
+                        "score": 10.0,
+                        "feedback": "Excellent understanding of the concept.",
+                        "details": {
+                            "similarity": overlap_ratio,
+                            "concept_coverage": 1.0,
+                            "matched_concepts": [],
+                            "missing_concepts": []
+                        }
+                    }
+
         # Detect OCR noise level in student answer
         noise_ratio = self.ocr_noise_ratio(student_text)
         noisy_mode = noise_ratio > 0.30
@@ -251,7 +292,24 @@ class SemanticScorer:
         emb1 = self.model.encode(student_text, convert_to_tensor=True)
         emb2 = self.model.encode(model_text, convert_to_tensor=True)
         overall_sim = float(util.cos_sim(emb1, emb2)[0][0])
-        
+
+        # ---- HIGH-SIMILARITY RESCUE ----
+        # If the two texts are semantically very close (cosine >= 0.85), that
+        # essentially means they say the same thing. Award full marks without
+        # penalising for minor OCR noise in concept extraction.
+        if overall_sim >= 0.85:
+            print(f"    [Scoring] High-similarity rescue (sim={overall_sim:.2f}) — full score")
+            return {
+                "score": 10.0,
+                "feedback": "Excellent understanding of the concept.",
+                "details": {
+                    "similarity": round(overall_sim, 2),
+                    "concept_coverage": 1.0,
+                    "matched_concepts": matched_concepts,
+                    "missing_concepts": []
+                }
+            }
+
         # 4. Final Score — CONCEPT-DRIVEN (Pure Semantic Grading)
         # We rely on the AI's holistic understanding of the answer block.
         # If the whole block means the same thing, it's correct.
@@ -267,10 +325,10 @@ class SemanticScorer:
             # Scale linearly from 0.70 to 1.0
             fraction = (effective_sim - 0.40) / 0.15
             base_semantic_score = 0.70 + (0.30 * fraction)
-        elif effective_sim >= 0.20:
-            # Scale linearly from 0.25 to 0.70
-            fraction = (effective_sim - 0.20) / 0.20
-            base_semantic_score = 0.25 + (0.45 * fraction)
+        elif effective_sim >= 0.15:
+            # Scale linearly from 0.15 to 0.70 (was 0.20-0.70, lowered for OCR noise)
+            fraction = (effective_sim - 0.15) / 0.25
+            base_semantic_score = 0.15 + (0.55 * fraction)
         else:
             base_semantic_score = 0.0       # Unrelated garbage
             
@@ -296,9 +354,9 @@ class SemanticScorer:
         elif kw_hits >= 1 and len(words) > 5:
             final_score = max(final_score, 0.15)
             
-        # Minimum floor: any non-trivial answer with *some* semantic relevance gets at least 20%
-        if len(words) >= 8 and effective_sim > 0.25:
-            final_score = max(final_score, 0.20)
+        # Minimum floor: any non-trivial answer with *some* semantic relevance gets at least 15%
+        if len(words) >= 8 and effective_sim > 0.15:
+            final_score = max(final_score, 0.15)
             
         final_score = max(0.0, min(1.0, final_score))
         
@@ -329,12 +387,14 @@ class SemanticScorer:
         }
 
 
-    def evaluate_exam(self, student_segments, model_segments, question_schema=None):
+    def evaluate_exam(self, student_segments, model_segments, question_schema=None, llm_scorer=None):
         """
         Evaluates full exam with 'OR' logic and variable Max Marks using schema.
+        Optionally blends LLM scores (75%) with semantic scores (25%) when llm_scorer is provided.
         """
         results = []
         processed_model_keys = set()
+        any_llm_used = [False]  # mutable flag so inner code can set it
         
         # Sort keys to process 1, 1a, 1b in order roughly
         model_keys = sorted(model_segments.keys())
@@ -448,23 +508,43 @@ class SemanticScorer:
             
             # 1. Exact match
             if m_key in student_segments and m_key not in globally_matched_students:
-                res = self.evaluate_single_answer(student_segments[m_key], model_ans)
+                s_text = student_segments[m_key]
+                res = self.evaluate_single_answer(s_text, model_ans)
                 raw_score_normalized = res['score'] / 10.0
-                
                 score_data.update(res)
                 score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
+                # ---- LLM blend ----
+                if llm_scorer is not None:
+                    llm_res = llm_scorer.score_answer(s_text, model_ans, max_marks=info["max_marks"])
+                    if llm_res is not None:
+                        blended = min(llm_res['score'], info["max_marks"])
+                        score_data['score'] = blended
+                        score_data['feedback'] = llm_res['feedback']
+                        score_data['llm_method'] = llm_res['method']
+                        any_llm_used[0] = True
+                        print(f"    [LLM] Q{m_key}: semantic={round(raw_score_normalized * info['max_marks'],1)}, llm={llm_res['score']}, blended={blended}")
                 globally_matched_students.add(m_key)
                 pass1_matched.add(m_key)
                 print(f"    [Pass1] Q{m_key} exact-matched to student Q{m_key}")
                 
             # 2. Base match (e.g. Model '1a', Student '1')
             elif info["base_num"] in student_segments and info["base_num"] not in globally_matched_students:
-                res = self.evaluate_single_answer(student_segments[info["base_num"]], model_ans)
+                s_text = student_segments[info["base_num"]]
+                res = self.evaluate_single_answer(s_text, model_ans)
                 raw_score_normalized = res['score'] / 10.0
-                
                 score_data.update(res)
                 score_data['question'] = f"{m_key} (checked against Q{info['base_num']})"
                 score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
+                # ---- LLM blend ----
+                if llm_scorer is not None:
+                    llm_res = llm_scorer.score_answer(s_text, model_ans, max_marks=info["max_marks"])
+                    if llm_res is not None:
+                        blended = min(llm_res['score'], info["max_marks"])
+                        score_data['score'] = blended
+                        score_data['feedback'] = llm_res['feedback']
+                        score_data['llm_method'] = llm_res['method']
+                        any_llm_used[0] = True
+                        print(f"    [LLM] Q{m_key} (base): semantic={round(raw_score_normalized * info['max_marks'],1)}, llm={llm_res['score']}, blended={blended}")
                 globally_matched_students.add(info["base_num"])
                 pass1_matched.add(m_key)
                 print(f"    [Pass1] Q{m_key} base-matched to student Q{info['base_num']}")
@@ -515,6 +595,16 @@ class SemanticScorer:
                     score_data['question'] = f"{m_key}"
                     score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
                     score_data['feedback'] += f" (aggregated from student Q{', Q'.join(student_sub_keys)})"
+                    # ---- LLM blend ----
+                    if llm_scorer is not None:
+                        llm_res = llm_scorer.score_answer(combined_text, model_ans, max_marks=info["max_marks"])
+                        if llm_res is not None:
+                            blended = round(0.75 * llm_res['score'] + 0.25 * score_data['score'], 1)
+                            blended = min(blended, info["max_marks"])
+                            score_data['score'] = blended
+                            score_data['feedback'] = llm_res['feedback'] + f" (aggregated from student Q{', Q'.join(student_sub_keys)})"
+                            score_data['llm_method'] = llm_res['method']
+                            any_llm_used[0] = True
                     
                     globally_matched_students.update(student_sub_keys)
                     print(f"    [Pass2] Q{m_key} aggregated match to student Q{student_sub_keys}")
@@ -538,14 +628,24 @@ class SemanticScorer:
                     
                     # Only use if similarity is reasonable (> 0.2)
                     if best_match_key and best_match_score > 0.2:
-                        res = self.evaluate_single_answer(student_segments[best_match_key], model_ans)
+                        s_best = student_segments[best_match_key]
+                        res = self.evaluate_single_answer(s_best, model_ans)
                         raw_score_normalized = res['score'] / 10.0
                         
                         score_data.update(res)
                         score_data['question'] = f"{m_key}"
                         score_data['score'] = round(raw_score_normalized * info["max_marks"], 1)
                         score_data['feedback'] += f" (matched to Q{best_match_key})"
-                        
+                        # ---- LLM blend ----
+                        if llm_scorer is not None:
+                            llm_res = llm_scorer.score_answer(s_best, model_ans, max_marks=info["max_marks"])
+                            if llm_res is not None:
+                                blended = round(0.75 * llm_res['score'] + 0.25 * score_data['score'], 1)
+                                blended = min(blended, info["max_marks"])
+                                score_data['score'] = blended
+                                score_data['feedback'] = llm_res['feedback'] + f" (matched to Q{best_match_key})"
+                                score_data['llm_method'] = llm_res['method']
+                                any_llm_used[0] = True
                         globally_matched_students.add(best_match_key)
                         print(f"    [Pass2] Q{m_key} semantic-matched to student Q{best_match_key} (sim={best_match_score:.2f})")
                     else:
@@ -572,6 +672,37 @@ class SemanticScorer:
                 grouped_results[group_id] = []
             grouped_results[group_id].append(score_data_map[m_key])
             processed_model_keys.add(m_key)
+
+        # ---- ADD MISSING SCHEMA QUESTIONS as "Not Attempted" ----
+        # If the question paper has Q1-Q11 in the schema but the model answer
+        # parser only found Q1, Q3, Q10, Q12, the rest would never appear in
+        # the breakdown. Add them here so all questions are visible.
+        if question_schema:
+            for schema_key in question_schema:
+                if schema_key.startswith("_") or not isinstance(question_schema.get(schema_key), dict):
+                    continue
+                if schema_key in processed_model_keys:
+                    continue
+                # This schema question was not found in the model. Add as Not Attempted.
+                s_info = question_schema[schema_key]
+                s_max_marks = s_info.get("max_marks", default_marks)
+                s_type = s_info.get("type", "mandatory")
+                s_group = s_info.get("group", schema_key)
+                missing_item = {
+                    "question": schema_key,
+                    "_base_key": schema_key,
+                    "score": 0,
+                    "max_marks": s_max_marks,
+                    "feedback": "Not Attempted",
+                    "details": {},
+                    "type": s_type,
+                    "selected": True  # will be set properly below in group logic
+                }
+                if s_group not in grouped_results:
+                    grouped_results[s_group] = []
+                grouped_results[s_group].append(missing_item)
+                processed_model_keys.add(schema_key)
+                print(f"    [Schema Supplement] Q{schema_key} added from schema as Not Attempted ({s_max_marks} marks, {s_type})")
 
         # Post-Processing: Handle OR Groups and Challenge Questions
         final_results = []
@@ -617,9 +748,12 @@ class SemanticScorer:
                     
                     if is_selected:
                         # Add to total ONLY if selected
-                        # Challenge questions are scored but NOT counted in total
+                        # Challenge questions are scored as bonus, so their score
+                        # is added to total_obtained, but max_marks are NOT added
+                        # to total_possible.
+                        total_obtained += item['score']
+                        
                         if item.get('type') != 'challenge':
-                            total_obtained += item['score']
                             total_possible += item['max_marks']
                     else:
                         item['feedback'] += " (OR alternative -- not counted)"
@@ -632,12 +766,20 @@ class SemanticScorer:
             
         final_results.sort(key=lambda x: natural_keys(x['question']))
         
-        # Post-hoc: if we know the actual total marks from the question paper,
-        # scale to match (handles cases where per-question marks were estimated)
+        # Post-hoc scaling: ONLY scale if no real schema was available.
+        # When a full schema with per-question marks is present, scaling is wrong —
+        # it multiplies marks by (total / found_total) and makes /11 /16 etc appear.
+        # We only scale if total_possible is 0 or unexpectedly small AND no schema.
         final_max = total_possible
         final_obtained = total_obtained
         
-        if total_marks_hint and total_possible > 0 and total_possible != total_marks_hint:
+        has_real_schema = any(
+            not k.startswith("_") and isinstance(question_schema.get(k), dict)
+            for k in question_schema
+        ) if question_schema else False
+        
+        if total_marks_hint and total_possible > 0 and total_possible != total_marks_hint and not has_real_schema:
+            # Only scale when NO per-question schema was available (marks were guessed)
             scale_factor = total_marks_hint / total_possible
             final_obtained = round(total_obtained * scale_factor, 1)
             final_max = total_marks_hint
@@ -647,6 +789,9 @@ class SemanticScorer:
             for r in final_results:
                 r['score'] = round(r['score'] * scale_factor, 1)
                 r['max_marks'] = round(r['max_marks'] * scale_factor)
+        elif total_marks_hint and total_possible > 0 and total_possible != total_marks_hint and has_real_schema:
+            print(f"[Scoring] NOT scaling (schema-based marks in use): total_possible={total_possible}, hint={total_marks_hint}")
+            final_max = total_marks_hint  # Use hint as display max even without scaling
         
         print(f"\n[Scoring] Final: {round(final_obtained, 1)} / {final_max}")
         for r in final_results:
@@ -656,6 +801,7 @@ class SemanticScorer:
         return {
             "breakdown": final_results,
             "total_score": round(final_obtained, 1),
-            "max_score": final_max
+            "max_score": final_max,
+            "llm_used": any_llm_used[0]
         }
 

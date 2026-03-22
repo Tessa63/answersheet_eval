@@ -8,6 +8,37 @@ import sys
 import numpy as np
 import cv2
 import pytesseract
+import hashlib
+import json
+
+# ===== OCR CACHE =====
+_OCR_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".ocr_cache")
+os.makedirs(_OCR_CACHE_DIR, exist_ok=True)
+
+def _file_hash(path):
+    """MD5 hash of file contents for cache key."""
+    h = hashlib.md5()
+    with open(path, 'rb') as f:
+        while chunk := f.read(65536):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _cache_path(file_hash):
+    return os.path.join(_OCR_CACHE_DIR, f"{file_hash}.txt")
+
+def _read_cache(file_hash):
+    p = _cache_path(file_hash)
+    if os.path.exists(p):
+        with open(p, 'r', encoding='utf-8') as f:
+            print(f"  [OCR Cache] HIT - skipping OCR (cached result loaded)")
+            return f.read()
+    return None
+
+def _write_cache(file_hash, text):
+    p = _cache_path(file_hash)
+    with open(p, 'w', encoding='utf-8') as f:
+        f.write(text)
+    print(f"  [OCR Cache] Saved result to cache")
 
 # Try to find poppler in common locations, otherwise hope it's in PATH
 POPPLER_PATH = None
@@ -201,7 +232,20 @@ def extract_text_from_file(file_path):
     Adaptive strategy: starts with dual-engine OCR for best quality,
     but if a page takes too long (>2min), switches to Tesseract-only
     for remaining pages to avoid timeout.
+    
+    Results are cached by file hash — repeated uploads of the same file
+    skip OCR entirely.
     """
+    # ---- CHECK CACHE FIRST ----
+    try:
+        file_hash = _file_hash(file_path)
+        cached = _read_cache(file_hash)
+        if cached is not None:
+            return cached
+    except Exception as cache_err:
+        print(f"  [OCR Cache] Cache check failed (non-critical): {cache_err}")
+        file_hash = None
+
     text = ""
     use_fast_mode = False  # Switch to Tesseract-only if dual engine is too slow
     
@@ -264,5 +308,12 @@ def extract_text_from_file(file_path):
         import traceback
         traceback.print_exc()
         return ""
+    
+    # ---- SAVE TO CACHE ----
+    if text and file_hash:
+        try:
+            _write_cache(file_hash, text)
+        except Exception as cache_err:
+            print(f"  [OCR Cache] Failed to write cache (non-critical): {cache_err}")
     
     return text

@@ -6,3 +6,7 @@ pdf2image
 Pillow
 easyocr
 sentence-transformers
+groq
+google-genai
+httpx
+accelerate
