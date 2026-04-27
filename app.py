@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, request, render_template, jsonify
 import os
 import time
@@ -10,8 +13,10 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# No need for SemanticScorer or separate llm_scorer now
-# Scoring is fully handled by Gemini 2.5 Flash
+# Hybrid pipeline:
+#   Phase 1-3: Local OCR    (TrOCR for handwriting, EasyOCR+Tesseract for printed)
+#   Phase 4:   API Grading  (Gemini 2.5 Flash → 2.0 Flash → 1.5 Flash, auto failover)
+#              Ultimate fallback: Local Semantic Evaluator (offline)
 
 # --- Global State ---
 # Using globals for simplicity (single-user app).
@@ -20,7 +25,7 @@ progress: Dict[str, Any] = {
     "status": "idle",    # idle | processing | done | error
     "message": "",
     "step": 0,
-    "total_steps": 6
+    "total_steps": 4     # 3 OCR phases + 1 grading phase
 }
 
 # Stores the latest result so /results can render it after processing
@@ -113,38 +118,27 @@ def evaluate():
         global progress, latest_result
         overall_start = time.time()
         try:
-            progress["total_steps"] = 6
-            
-            update_progress(1, "Initializing OCR & Semantic Evaluation Pipeline...")
-            time.sleep(1.5)
-            
-            update_progress(2, "Reading student answer sheet with OCR... (this may take a minute)")
-            time.sleep(2.0)
-            
-            update_progress(3, "Loading SentenceTransformer (BERT) embeddings...")
-            time.sleep(1.5)
-            
-            update_progress(4, "Aligning semantic vectors with Model Answer...")
-            time.sleep(1.5)
-            
-            update_progress(5, "Applying advanced layout heuristics and contextual matching...")
-            
-            # evaluate_exam_with_gemini handles uploading directly to Gemini and generation
-            exam_results = evaluate_exam_with_gemini(s_path, m_path, q_path)
-            
-            update_progress(6, "Synthesizing final evaluated score...")
-            time.sleep(1.0)
-            
+            progress["total_steps"] = 4  # 3 OCR + 1 grading
+
+            # Pass a callback so the evaluator can update progress for each phase
+            def on_progress(step, message):
+                update_progress(step, message)
+
+            exam_results = evaluate_exam_with_gemini(
+                s_path, m_path, q_path,
+                progress_callback=on_progress
+            )
+
             total_time = time.time() - overall_start
-            print(f"\n=== TOTAL AI PROCESSING TIME: {total_time:.1f}s ===")
-            
+            print(f"\n=== TOTAL PROCESSING TIME: {total_time:.1f}s ===")
+
             latest_result["exam_data"] = exam_results
             progress["status"] = "done"
-            progress["message"] = "Complete!"
+            progress["message"] = f"Complete! (Graded by {exam_results.get('grading_api', 'AI')})"
 
         except Exception as e:
             total_time = time.time() - overall_start
-            print(f"Error AI Evaluator thread after {total_time:.1f}s: {e}")
+            print(f"Error in evaluator thread after {total_time:.1f}s: {e}")
             import traceback
             traceback.print_exc()
             latest_result["error"] = f"An error occurred during evaluation: {e}"
@@ -154,9 +148,10 @@ def evaluate():
     # Start processing in background -- return immediately
     worker = threading.Thread(target=process_evaluation, daemon=True)
     worker.start()
-    
+
     # Return 202 Accepted immediately -- client will poll /progress
     return jsonify({"status": "accepted", "message": "Processing started"}), 202
+
 
 
 if __name__ == "__main__":

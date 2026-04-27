@@ -3,7 +3,7 @@ import sys
 import traceback
 
 os.environ["TOGETHER_API_KEY"] = "key_CZ83KK2mqEWypbzDtU4Eh"
-os.environ["GEMINI_API_KEY"] = "AIzaSyA1cTVbWHQsw4m_wzLHypXfomSc_ZtZoWk"
+os.environ["GEMINI_API_KEY"] = "AIzaSyDykJ2G2-0hLCCrRyVbDqmPzsKHuQzLxQ4"
 from llm_scorer import _score_via_gemini, _score_via_together, _score_via_local
 
 def test_backends():

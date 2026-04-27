@@ -1,0 +1,262 @@
+{
+  "high_scored": {
+    "total_score": 10.0,
+    "max_score": 50.0,
+    "llm_used": true,
+    "grading_api": "Gemini 2.5 Flash (Granular)",
+    "ocr_method": "Local OCR Pipeline (TrOCR + EasyOCR)",
+    "breakdown": [
+      {
+        "question": "1",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "I cannot accurately grade the student's answer because the 'MODEL ANSWER' was not provided. Without the model answer, I cannot compare the student's response against the expected content, depth, and accuracy required to assign a score based on the given grading rules (e.g., 'For full marks, the student MUST cover at least 80% of the model answer points').",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Inkelctudl papatyd 1 tke Caaticn_ 0 humam mind Nfet ad is such tat icon 0 biahty tl _ 3 licnxd distaibulid k Othui ke m Boi c pMpaty Intellctual ppuzly psokcllon plays 0 Cacial A012 Jm Resteximg innVa",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "2",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "3",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "4",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "5",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "6",
+        "score": 7.0,
+        "max_marks": 7.0,
+        "feedback": "The student has provided a comprehensive and accurate answer regarding the importance and protection of trademarks. Despite the challenging handwriting, the key points are discernible and well-articulated.\n\n**Strengths:**\n*   Clearly states the importance of trademarks for consumer identification ('people will not be able to identify the goods of that company').\n*   Highlights the business impact, noting a 'big loss to that brand' without protection.\n*   Accurately identifies and explains the role of key international frameworks and organizations: TRIPS (Trade-Related Aspects of Intellectual Property Rights) and WIPO (World Intellectual Property Organization), mentioning TRIPS' role in setting 'minimal standards'.\n*   Explains the protective function of trademarks in 'preventing infringement of symbols by preventing misuse'.\n*   Connects trademark protection to broader economic benefits, including 'economic development and industrial growth', 'promotes economic as well as entrepreneurship', 'promotes innovative ideas', and 'promotes competition'.\n\n**Areas for minor improvement (not impacting score due to comprehensive coverage):**\n*   A more explicit initial definition of what a trademark *is* (e.g., a sign, symbol, word) could have been included, though its functions are well-described.\n\nThe answer covers all major facets expected for a question on trademark importance and protection, demonstrating excellent understanding and depth. The student has covered well over 80% of the likely model answer points.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Paxdual Tndnak Pxolclin) - 6\"^. ' Vwini : ' 1 Ixadmaxk _ j Vev esscnwdl tox Nn T Factdiq1 el Cepy 4 Sorc wthouud Ws ck thws eyanitalis lccMX athi 4 will be Q big Ipss to thal Ihen 06 Iuks cu wil k att",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "7",
+        "score": 0.0,
+        "max_marks": 7.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "8",
+        "score": 0.0,
+        "max_marks": 7.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "9",
+        "score": 3.0,
+        "max_marks": 7.0,
+        "feedback": "The student provides a basic but correct definition of copyright, identifying it as a right granted to the authors of original works. They correctly mention that it applies to works like films and that the owner controls its use, requiring permission for others to 'manage' it. This demonstrates a foundational understanding of the concept.\n\nHowever, for a 7-mark question, the answer lacks significant depth and detail. Key aspects missing include:\n- Specific rights granted by copyright (e.g., reproduction, distribution, public performance, adaptation).\n- The duration of copyright protection.\n- Consequences of copyright infringement.\n- Exceptions to copyright (e.g., fair use/dealing).\n\nThe answer is very brief and only covers a small fraction of what would be expected for a comprehensive response. While the core concept is present, the lack of detail and missing crucial elements limit the score.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Cepyaight is Ihe aiqht Iianbd t0 Ihe ori dial Waiks th ek authershp Sh 45 Aieatual Rexles as film= ekc . IL 2 1 diabs aighbs le Ile Din1 He Woik to allew ptheu to Mnala ik WX4 only WMh permussith",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "10",
+        "score": 0.0,
+        "max_marks": 7.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "11",
+        "score": 0.0,
+        "max_marks": 5.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "challenge",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      }
+    ]
+  },
+  "low_scored": {
+    "total_score": 24.0,
+    "max_score": 50.0,
+    "llm_used": true,
+    "grading_api": "Gemini 2.5 Flash (Granular)",
+    "ocr_method": "Local OCR Pipeline (TrOCR + EasyOCR)",
+    "breakdown": [
+      {
+        "question": "1",
+        "score": 3.0,
+        "max_marks": 3.0,
+        "feedback": "The student's answer, despite significant OCR errors, demonstrates a comprehensive understanding of Intellectual Property (IP) for a 3-mark question. The answer correctly identifies IP as 'non-tangible property'. It provides relevant examples such as 'inventions (Patent)', 'artworks', 'books', 'film', and 'song (copyright)', correctly linking them to specific types of IP. Furthermore, the student articulates key reasons for IP protection, including giving 'credits to author/creator', promoting 'new inventions and creation of solution for existing problems', and providing 'Financial benefits for the owner of IP'. These points cover the definition, types, and purpose of IP, which are the core components expected in a full answer. The content accurately addresses the fundamental aspects of Intellectual Property.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Inkellectual Propehy In telle ckucl Propuh 15 nan tangibic Preputy chich cun be inven Hons ( Pateni) #duaks 07 L7{4hi05 Ik & Film 0 Sang (cpj_jight_ inte Ilectual Pxoped +y nzed 40 to Pvokecked becall",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "2",
+        "score": 1.5,
+        "max_marks": 3.0,
+        "feedback": "The student's answer is difficult to grade precisely due to significant OCR errors and the absence of the model answer for comparison. However, based on the decipherable text and general knowledge of patent law, the student demonstrates a basic understanding of the distinction between patentable and non-patentable inventions.\n\n**Strengths:**\n*   The student attempts to define both 'Patentable invention' and 'Non Patentable invention'.\n*   For patentable inventions, keywords like 'improvements' and 'problem solution' are present, which are relevant to the criteria of patentability (e.g., inventive step, utility).\n*   For non-patentable inventions, the student correctly identifies that they 'cannot be Patented' and provides a valid reason: 'because IF 15 already ezi6hin9' (lack of novelty).\n\n**Areas for Improvement (based on what is missing from a comprehensive answer):**\n*   **Clarity and Detail:** The answer lacks the depth and precision expected for full marks. Specific criteria for patentability (novelty, non-obviousness, industrial applicability/utility) are not clearly articulated.\n*   **Non-Patentable Categories:** Beyond 'already existing', a comprehensive answer would list other categories of non-patentable subject matter (e.g., discoveries, scientific theories, mathematical methods, aesthetic creations, methods of performing mental acts, computer programs 'as such').\n*   **Examples:** While 'An AI algorithm' is mentioned, its patentability can be complex. A clearer example of a universally non-patentable item (e.g., a scientific law or a pure mathematical formula) would be more effective.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Invenhion Patentable invention cshich 40s Gn (5 invention Mc neoly Pa lentable 00 ezistin $ Problem 6oluOiop Fov calt Creu Fed 45 macinav 07 makin 9 imProveneks creahion ok 07 cteahion to ne d On \u20ac to",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "3",
+        "score": 1.5,
+        "max_marks": 3.0,
+        "feedback": "The student's answer is extremely difficult to read and understand due to numerous spelling errors and poor grammar. However, by deciphering the text, the student appears to grasp three fundamental aspects of a trademark:\n\n1.  **Represents the company:** 'Basically zcresenks Ahe 2 tite be companj' can be interpreted as 'Basically represents the [identity/brand] of the company.' (0.5 marks)\n2.  **Should be unique:** 'It hewld unique' can be interpreted as 'It should be unique.' (0.5 marks)\n3.  **Should be protected:** '4nd Proleeked' can be interpreted as 'and protected.' (0.5 marks)\n\nWhile these three points are core to understanding trademarks, the answer lacks any depth, explanation, or clarity. There is no elaboration on *why* it needs to be unique or protected, or what a trademark actually entails beyond these basic characteristics. The poor articulation significantly detracts from the quality of the answer. For full marks, a much clearer, more detailed, and well-explained answer would be required, covering the purpose, characteristics, and importance with proper terminology.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Tade mak ivademelk muy be Tog0 ,0T name 05 Blegan Telu ted fixm 0w aytbo =i FJ Babically zcresenks Ahe 2 tite be companj 50 It hewld unique 4nd Proleeked 29 Nilac Ioge arple lo Jo eke Trude munk Inf T",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "4",
+        "score": 0.0,
+        "max_marks": 3.0,
+        "feedback": "The model answer for Question 4 was not provided, which makes it impossible to accurately assess the student's answer against the expected content. \n\nMore critically, the student's answer provided ('Tvade mwks opzingemenl m41lk5 of Tcfes to opecif-ic the U5< ol- T70 de Com I7a d2 malk5 Pa ry ilhouo vniquely #hey Pe missin {hem Lti 3eresel makc @ Con> Con Pany 90 05i0y (5 [45i0n Punishable In (on3umm5 50 CePy') is completely unreadable due to severe OCR errors. As the answer cannot be understood or interpreted, no evidence of understanding can be found, and therefore no marks can be awarded. \n\nTo grade this answer, please provide the model answer and a readable version of the student's response.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Tvade mwks opzingemenl m41lk5 of Tcfes to opecif-ic the U5< ol- T70 de Com I7a d2 malk5 Pa ry ilhouo vniquely #hey Pe missin {hem Lti 3eresel makc @ Con> Con Pany 90 05i0y (5 [45i0n Punishable In (on3",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "5",
+        "score": 3.0,
+        "max_marks": 3.0,
+        "feedback": "The student correctly identifies 'Copyright Infringement' and defines it accurately as 'Copying an intellectual Property without the Permission'. They also correctly state that it is an 'unauthorized access' and a 'Punishable act'. Furthermore, the student provides three clear and relevant examples: 'Using copyrighted Song... without the permission of creator', 'Copying Story of existing Film', and 'copying lines of existing song'. Despite some deciphering required due to handwriting/OCR, the core concepts and examples are well-articulated and cover all key aspects of the model answer, demonstrating a thorough understanding.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "5) copy Tight Infzingemeni- Tefas to Ihe P70c 55 of Copying an intellecta) Prorety ilhouo Ihe Permibsion Il 15 ba5184lly una Ibovi3ed ac6e55 of 40 I Il 15 a Punishable ack 29: Using coPyvighted Son 9 ",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "6",
+        "score": 2.5,
+        "max_marks": 7.0,
+        "feedback": "The student correctly identifies two key reasons for the importance of trademark protection: that it helps to identify a specific product/item, and that copying trademarks can cause confusion among consumers. These are fundamental and accurate points. However, for a 7-mark question, the answer is very brief and lacks the depth and breadth expected. A comprehensive answer would typically include additional points such as building brand reputation and goodwill, assuring quality to consumers, providing legal protection against infringement, and acting as a valuable asset for the business. The answer only covers a small fraction of the potential points for a question of this mark value.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Prolection of Avademwk Ptolec; Hon ot tademak 15 Vey Impor F4nk beca $ 2 0 } helps to Iden Hifj a sPe cfic Miam Udinj Iz Copying +344emvI< ~il Cu45e confusi6n among conbumes 60 sheuld be ProFecked",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "7",
+        "score": 4.5,
+        "max_marks": 7.0,
+        "feedback": "The student correctly identifies WIPO and its primary role in the protection of intellectual property. They also accurately mention its function in standardizing laws for IP protection and provide 'copyrights' as a relevant example of intellectual property. However, the answer is very brief and lacks the depth required for full marks. Key aspects such as WIPO's role in administering international treaties, providing international filing services (e.g., for patents and trademarks), or fostering international cooperation are missing. The term 'creation' of IP is less precise than 'protection' or 'promotion of an environment for creation'. Furthermore, the legibility and spelling are extremely poor, making parts of the answer difficult to decipher (e.g., 'UN' is barely legible).",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "wipo Wipo 4o UN Tecegn/3< O 99n Zahian ohich helps Prol-ection and cve4kion of nke Ile ctuao Paep In the e1tj wipo 6tandandtse Ihe las Foz Prolection 0 \u20ac Ip cePy 7i9h+5",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "8",
+        "score": 0.0,
+        "max_marks": 7.0,
+        "feedback": "Error during grading: Unterminated string starting at: line 3 column 15 (char 32)",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "The Paore etion Cepy aigh} (6 (nvsi filims etc 4iven 40 Caea!o n Iuz & Pj cef] 7 'ahk 7/Jkt? cenl &nad Moral Righl {eenomic Tuhto",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "9",
+        "score": 2.5,
+        "max_marks": 7.0,
+        "feedback": "The student's answer is extremely difficult to decipher due to numerous spelling errors, grammatical issues, and a complete lack of structure. While some relevant keywords related to patents can be vaguely identified, the overall presentation severely hinders understanding and demonstrates a significant lack of clarity.\n\nMarks were awarded for the following identifiable concepts, despite the poor legibility:\n*   **Patent application:** (0.5 marks) - 'Patenl- applcatin' was deciphered as 'patent application'.\n*   **Pending:** (0.5 marks) - '2pendin;' was deciphered as 'pending', likely referring to a pending application.\n*   **Patent establishment/grant:** (0.5 marks) - 'Palank establismnt' was deciphered as 'patent establishment' or 'patent grant'.\n*   **Maintenance of Patent:** (0.5 marks) - 'Mam Fanante' was deciphered as 'Maintenance'.\n*   **Renewal of Patent:** (0.5 marks) - 'Renedcd ol PaFeat' was deciphered as 'Renewal of Patent'.\n\nNo marks could be awarded for phrases like 'Sea Fez alsealy e3ihing', 'cke clkicg of applicakior?', or 'Ihovily Patenk' as they are too garbled to provide tangible evidence of understanding a specific concept. The answer lacks any depth or explanation, which would be crucial for a question worth 7 marks. To improve, the student must focus on clear, legible writing, correct spelling, and structured explanations of concepts.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "Sea Fez alsealy e3ihing Pa Hen +5 Nle Patenl- applcatin cke clkicg of applicakior? 6y (0n~ 2pendin; a4 Ihovily Patenk 01 unF Palank establismnt Mam Fanante and Renedcd ol PaFeat",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "10",
+        "score": 5.5,
+        "max_marks": 7.0,
+        "feedback": "The student's answer, despite being difficult to decipher due to poor legibility, demonstrates a foundational understanding of trademark protection and registration. The student correctly identifies a trademark/logo and its primary purpose of providing 'protection against unauthorized activity'. Furthermore, the answer outlines key steps in the registration process, including 'filing an application', providing 'details of the application', 'approval of application', and the 'establishment' of rights. These points are accurate and relevant.\n\nHowever, the answer lacks significant depth and elaboration required for a 7-mark question. It is very brief and fragmented. Key aspects that would be expected in a comprehensive answer are missing, such as the importance of conducting a trademark search, the opposition period, the duration of protection, the renewal process, specific legal remedies available, the value of a registered trademark as a business asset, and its broader role in brand building and market differentiation. The answer covers the core concepts but without the necessary detail and breadth.",
+        "selected": true,
+        "type": "normal",
+        "student_answer": "7M Io Ahe trademalk log 5 0 j-1 no le9-0 pzo ke ckion Jeresenk Aha F the trademan) R trilen 21+6 Ihe lo9o Indicahes 4hat Ahe +74 - demclk nave (2 941 Pzokechon a9ain5 F a uncueiho? zed achinty Fiting ",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      },
+      {
+        "question": "11",
+        "score": 0.0,
+        "max_marks": 5.0,
+        "feedback": "Not attempted.",
+        "selected": true,
+        "type": "challenge",
+        "student_answer": "",
+        "model_answer": "",
+        "llm_method": "Gemini 2.5 Flash"
+      }
+    ]
+  }
+}

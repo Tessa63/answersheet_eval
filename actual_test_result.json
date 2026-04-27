@@ -1,0 +1,86 @@
+{
+  "total_score": 21.0,
+  "max_score": 22.0,
+  "llm_used": true,
+  "grading_api": "Gemini 2.5 Flash",
+  "ocr_method": "Local OCR Pipeline (TrOCR + EasyOCR)",
+  "breakdown": [
+    {
+      "question": "1",
+      "max_marks": 3.0,
+      "score": 3.0,
+      "feedback": "The student correctly identified that intellectual property protection fosters innovation, ensures fair competition, grants rights to creators, prevents unauthorized use, and promotes economic growth.",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "2",
+      "max_marks": 3.0,
+      "score": 3.0,
+      "feedback": "The student accurately described WIPO as the World Intellectual Property Organization, responsible for global IP protection, an international organization that aims to establish international treaties and deals with various IP rights.",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "3",
+      "max_marks": 3.0,
+      "score": 3.0,
+      "feedback": "The student correctly explained the criteria for patentability (novelty, non-obviousness, usefulness) and provided relevant examples for both patentable (medicine, mechanical device, biotech) and non-patentable inventions (natural laws, against public interest, traditional knowledge, medical surgery).",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "4",
+      "max_marks": 3.0,
+      "score": 2.0,
+      "feedback": "The student correctly defined copyright infringement as the unauthorized use of copyrighted work and provided one clear example (using a copyrighted song without permission). A second distinct example was not clearly articulated.",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "5",
+      "max_marks": 3.0,
+      "score": 3.0,
+      "feedback": "The student correctly differentiated between the TM symbol (indicating an unregistered trademark) and the R symbol (indicating a registered trademark).",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "6",
+      "max_marks": 7.0,
+      "score": 7.0,
+      "feedback": "The student provided a comprehensive and accurate procedure for patent filing, including initial patentability checks, prior art search, application details, filing, examination, grant, and mention of provisional/complete applications and patent duration.",
+      "type": "normal",
+      "selected": true,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    },
+    {
+      "question": "11",
+      "max_marks": 5.0,
+      "score": 0.0,
+      "feedback": "Not attempted.",
+      "type": "challenge",
+      "selected": false,
+      "student_answer": "",
+      "model_answer": "",
+      "llm_method": "Gemini 2.5 Flash"
+    }
+  ]
+}

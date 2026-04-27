@@ -2,7 +2,7 @@ import os
 from google import genai
 from google.genai import types
 
-os.environ["GEMINI_API_KEY"] = "AIzaSyA1cTVbWHQsw4m_wzLHypXfomSc_ZtZoWk"
+os.environ["GEMINI_API_KEY"] = "AIzaSyDykJ2G2-0hLCCrRyVbDqmPzsKHuQzLxQ4"
 client = genai.Client()
 
 print("Uploading files...")

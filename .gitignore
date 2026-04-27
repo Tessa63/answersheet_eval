@@ -155,3 +155,7 @@ uploads/
 !corrected_answer.txt
 error_analysis.txt
 result_analysis.txt
+
+# Temp and archive files
+*.zip
+scratch/
